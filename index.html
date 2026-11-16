@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="en-ZA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Donegal Farm – Herd Tracker</title>
+<style>
+:root{--g:#2f5d3a;--g2:#e7f0e8;--bd:#d5dbd3;--tx:#1d2420;--mut:#5f6b63;--bg:#f6f7f4;--warn:#8a5a00;--wbg:#fff4d6;--red:#a3261b;--bull:#3b6ea8;--heif:#c0607e}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:var(--tx);background:var(--bg)}
+.top{position:sticky;top:0;z-index:5;background:var(--g);color:#fff;display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;padding:6px 12px}
+.brand{display:flex;align-items:center;gap:8px}.brand small{display:block;opacity:.8;font-size:12px}.logo{font-size:24px}
+.tabs{display:flex;gap:2px;overflow-x:auto;flex:1;min-width:0;scrollbar-width:none}
+.tabs button{background:transparent;border:0;color:#fff;opacity:.8;padding:9px 11px;font:inherit;border-radius:6px;white-space:nowrap;cursor:pointer}
+.tabs button.on{background:rgba(255,255,255,.18);opacity:1;font-weight:600}
+main{max-width:1150px;margin:0 auto;padding:12px}
+#banners{max-width:1150px;margin:0 auto;padding:0 12px}
+.banner{margin-top:10px;padding:9px 12px;border-radius:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.banner.ex{background:#e8eefb;border:1px solid #b9c8ea}.banner.bk{background:var(--wbg);border:1px solid #e6cf8f}
+h2{font-size:19px;margin:6px 0 10px}h3{font-size:16px;margin:16px 0 8px}
+.card{background:#fff;border:1px solid var(--bd);border-radius:10px;padding:12px;margin-bottom:12px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.sp{flex:1}
+button,.btn{font:inherit;border:1px solid var(--bd);background:#fff;color:var(--tx);padding:8px 13px;border-radius:7px;cursor:pointer;min-height:38px}
+button.pri{background:var(--g);border-color:var(--g);color:#fff}button.danger{background:var(--red);border-color:var(--red);color:#fff}
+button.link{border:0;background:none;color:var(--g);text-decoration:underline;padding:4px;min-height:0}
+button:disabled{opacity:.5;cursor:default}
+input,select,textarea{font:inherit;font-size:16px;padding:7px 8px;border:1px solid #b9c2ba;border-radius:6px;background:#fff;color:var(--tx);width:100%;min-height:38px}
+textarea{min-height:60px}
+label.f{display:block;margin-bottom:8px}label.f>span{display:block;font-size:13px;color:var(--mut);margin-bottom:2px}
+label.chk{display:flex;gap:8px;align-items:center}label.chk input{width:auto;min-height:0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:0 10px}
+.grid .wide{grid-column:1/-1}
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.stat{background:#fff;border:1px solid var(--bd);border-radius:9px;padding:9px 10px}
+.stat b{display:block;font-size:20px}.stat span{font-size:12px;color:var(--mut)}.stat small{display:block;color:var(--mut);font-size:12px}
+.tw{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--bd);border-radius:8px;background:#fff}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:6px 8px;border-bottom:1px solid #e8ebe6;text-align:left;white-space:nowrap}
+th{background:var(--g2);font-weight:600;position:sticky;top:0}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+tr.click{cursor:pointer}tr.click:hover{background:#f3f7f2}
+tfoot td{font-weight:600;background:#fafbf9}
+td.wrap{white-space:normal;min-width:140px}
+.tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:9px;background:#e8eefb;color:#2c4a8a;margin-left:4px;font-weight:600;letter-spacing:.3px}
+.tag.d{background:#fde4e1;color:var(--red)}.tag.s{background:#e3f1e5;color:var(--g)}
+.muted{color:var(--mut)}.small{font-size:13px}
+.warns{background:var(--wbg);border:1px solid #e6cf8f;color:var(--warn);border-radius:7px;padding:7px 10px;margin:6px 0;font-size:14px}
+.warns:empty{display:none}
+.calcbox{background:var(--g2);border-radius:8px;padding:8px 10px;margin:6px 0;font-size:14px}
+.calcbox td{padding:2px 6px;border:0}
+.charts{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
+.chart{background:#fff;border:1px solid var(--bd);border-radius:9px;padding:8px}
+.chart svg{width:100%;height:auto;display:block}
+.legend{font-size:12px;color:var(--mut)}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px 0 8px;vertical-align:-1px}
+.ov{position:fixed;inset:0;background:rgba(20,30,22,.45);display:flex;align-items:flex-start;justify-content:center;padding:4vh 10px;z-index:50;overflow-y:auto}
+.dlg{background:#fff;border-radius:12px;max-width:620px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3);display:flex;flex-direction:column;max-height:92vh}
+.dlg.wide{max-width:860px}
+.dlg h3{margin:0;padding:12px 14px;border-bottom:1px solid #e8ebe6}
+.dlg .bd{padding:12px 14px;overflow-y:auto}
+.dlg .ft{padding:10px 14px;border-top:1px solid #e8ebe6;display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.dlg .ft .left{margin-right:auto}
+.picklist{max-height:300px;overflow-y:auto;border:1px solid var(--bd);border-radius:7px}
+.picklist label{display:flex;gap:8px;align-items:center;padding:6px 8px;border-bottom:1px solid #eef0ec}
+.picklist input[type=checkbox]{width:auto;min-height:0}
+.picklist input[type=number]{width:90px;margin-left:auto}
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#233;color:#fff;padding:9px 16px;border-radius:20px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:60}
+#toast.on{opacity:.95}
+#print{display:none}
+@media (max-width:600px){
+  main{padding:8px}.top{padding:6px 8px}.brand small{display:none}.tabs{flex-basis:100%}
+  .dlg{max-height:none;border-radius:10px}.ov{padding:8px 6px}
+  .stat b{font-size:18px}.stats{grid-template-columns:repeat(2,1fr)}
+  .charts{grid-template-columns:1fr}
+  .grid{grid-template-columns:1fr 1fr}
+}
+@page{size:A4;margin:12mm}
+@media print{
+  body{background:#fff;font-size:11pt}
+  body>*:not(#print){display:none!important}
+  #print{display:block!important}
+  .rep h1{font-size:17pt;margin:0 0 2mm}.rep h2{font-size:13pt;margin:6mm 0 2mm;border-bottom:1px solid #999}
+  .rep table{font-size:9.5pt;width:100%;border-collapse:collapse}
+  .rep th,.rep td{border:1px solid #bbb;padding:1.2mm 2mm;white-space:normal;position:static}
+  .rep th{background:#eee!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .rep tr{break-inside:avoid}
+  .rep .sum{display:grid;grid-template-columns:1fr 1fr;gap:0 8mm}
+  .rep .chart{border:0;padding:0;break-inside:avoid}
+  .rep .charts{display:grid;grid-template-columns:1fr 1fr;gap:4mm}
+  .rep .foot{margin-top:6mm;font-size:8.5pt;color:#555}
+}
+@media screen{
+  #print.on{display:block;position:fixed;inset:0;z-index:40;background:#7a817c;overflow:auto;padding:10px}
+  #print .pbar{position:sticky;top:0;display:flex;gap:8px;justify-content:center;padding:6px;margin-bottom:10px}
+  #print .page{background:#fff;width:210mm;max-width:100%;min-height:297mm;margin:0 auto;padding:12mm;box-shadow:0 2px 12px rgba(0,0,0,.4)}
+  .rep h1{font-size:22px;margin:0 0 4px}.rep h2{font-size:16px;margin:16px 0 6px;border-bottom:1px solid #999}
+  .rep table{font-size:13px}.rep th,.rep td{border:1px solid #ccc;white-space:normal;position:static}
+  .rep .sum{display:grid;grid-template-columns:1fr 1fr;gap:0 20px}
+  .rep .charts{display:grid;grid-template-columns:1fr 1fr;gap:8px}.rep .chart{border:0;padding:0}
+  .rep .foot{margin-top:16px;font-size:12px;color:#555}
+}
+@media screen and (max-width:600px){#print .page{padding:5mm;overflow-x:auto}.rep .sum,.rep .charts{grid-template-columns:1fr}}
+@media print{#print .pbar{display:none}#print .page{padding:0}}
+
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo" aria-hidden="true">🐄</span><div><b>Donegal Farm</b><small>Herd Tracker</small></div></div>
+  <nav class="tabs" id="tabs">
+    <button data-t="dash">Dashboard</button><button data-t="calves">Calves</button><button data-t="wean">Weaning</button>
+    <button data-t="sales">Sales</button><button data-t="herd">Herd</button><button data-t="setup">Setup</button><button data-t="data">Data</button>
+  </nav>
+</header>
+<div id="banners"></div>
+<main id="main"></main>
+<div id="print" aria-hidden="true"></div>
+<div id="toast"></div>
+<script>
+/* Donegal Farm – pure calculation helpers (also loaded by node tests) */
+(function (root) {
+  'use strict';
+  function num(v) {
+    if (v === '' || v === null || v === undefined) return null;
+    var n = typeof v === 'number' ? v : parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
+    return isFinite(n) ? n : null;
+  }
+  function near(a, b) { return Math.abs(a - b) <= Math.max(1, Math.abs(b) * 0.005); }
+
+  /* Sale: works out whichever values can be derived from the ones entered.
+     Inputs (any may be blank): head, kg, pkg (R/kg), phead (R/head), gross,
+     commPct, comm (R), levies, transport, other, net. */
+  function calcSale(s) {
+    s = s || {};
+    var head = num(s.head), kg = num(s.kg), pkg = num(s.pkg), ph = num(s.phead);
+    var gross = num(s.gross), net = num(s.net), pct = num(s.commPct), comm = num(s.comm);
+    var fixed = ['levies', 'transport', 'other'].reduce(function (a, k) { return a + (num(s[k]) || 0); }, 0);
+    var derived = {}, warn = [];
+    var grossIn = gross, pkgIn = pkg, phIn = ph, netIn = net, commIn = comm;
+    if (gross === null) {
+      if (kg !== null && pkg !== null) { gross = kg * pkg; derived.gross = 'kg × R/kg'; }
+      else if (head !== null && ph !== null) { gross = head * ph; derived.gross = 'head × R/head'; }
+    }
+    if (gross === null && net !== null) {
+      if (comm === null && pct !== null) {
+        if (pct < 100) { gross = (net + fixed) / (1 - pct / 100); derived.gross = 'net + deductions'; }
+      } else { gross = net + fixed + (comm || 0); derived.gross = 'net + deductions'; }
+    }
+    if (comm === null && pct !== null && gross !== null) { comm = gross * pct / 100; derived.comm = pct + '% of gross'; }
+    if (commIn !== null && pct !== null && gross !== null && !near(commIn, gross * pct / 100))
+      warn.push('Commission R' + commIn.toFixed(2) + ' is not ' + pct + '% of gross – the rand amount is used.');
+    var ded = fixed + (comm || 0);
+    if (gross !== null) {
+      if (pkg === null && kg) { pkg = gross / kg; derived.pkg = 'gross ÷ kg'; }
+      if (ph === null && head) { ph = gross / head; derived.phead = 'gross ÷ head'; }
+      if (net === null) { net = gross - ded; derived.net = 'gross − deductions'; }
+      else if (!near(net, gross - ded)) warn.push('Net entered differs from gross − deductions (' + (gross - ded).toFixed(2) + ').');
+    }
+    if (grossIn !== null && kg !== null && pkgIn !== null && !near(kg * pkgIn, grossIn))
+      warn.push('kg × R/kg (' + (kg * pkgIn).toFixed(2) + ') differs from gross entered.');
+    if (grossIn !== null && head !== null && phIn !== null && !near(head * phIn, grossIn))
+      warn.push('head × R/head (' + (head * phIn).toFixed(2) + ') differs from gross entered.');
+    if (grossIn === null && kg !== null && pkgIn !== null && head !== null && phIn !== null && !near(kg * pkgIn, head * phIn))
+      warn.push('kg × R/kg and head × R/head give different totals – kg × R/kg is used.');
+    if (gross === null) warn.push('Not enough figures to work out the gross amount yet.');
+    if (net !== null && net < 0) warn.push('Net amount is negative.');
+    if (pkg !== null && (pkg < 5 || pkg > 200)) warn.push('R/kg of ' + pkg.toFixed(2) + ' looks unusual – please check.');
+    return { head: head, kg: kg, pkg: pkg, phead: ph, gross: gross, comm: comm, commPct: pct, fixed: fixed,
+      ded: gross === null && net === null ? null : ded, net: net, avgKg: kg && head ? kg / head : null,
+      derived: derived, warn: warn, netIn: netIn };
+  }
+
+  function addDays(iso, n) {
+    var d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  }
+  function yearOf(iso) { return iso ? +String(iso).slice(0, 4) : null; }
+
+  function seasonList(D, mode) {
+    if (mode === 'named' && D.seasons && D.seasons.length) {
+      return D.seasons.slice().sort(function (a, b) { return a.start < b.start ? -1 : 1; }).map(function (s) {
+        return { key: s.id, name: s.name, start: s.start, end: s.end, cowsBred: num(s.cowsBred), named: true };
+      });
+    }
+    var ys = {}; ys[new Date().getFullYear()] = 1;
+    function add(d) { var y = yearOf(d); if (y) ys[y] = 1; }
+    (D.calves || []).forEach(function (c) { add(c.born); });
+    (D.batches || []).forEach(function (b) { add(b.date); add(b.bornApprox); });
+    (D.sales || []).forEach(function (s) { add(s.date); });
+    (D.moves || []).forEach(function (m) { add(m.date); });
+    var yc = (D.settings && D.settings.yearCows) || {};
+    return Object.keys(ys).map(Number).sort().map(function (y) {
+      return { key: 'y' + y, name: String(y), start: y + '-01-01', end: y + '-12-31', cowsBred: num(yc[y]), named: false };
+    });
+  }
+
+  /* Season statistics. Calf cohort = calves born in the season; weaning counts belong to the
+     cohort (individual calves by birth date, batch entries by "calves born around" date).
+     Sales and movements count by their own date. */
+  function seasonStats(D, se) {
+    function inR(d) { return !!d && d >= se.start && d <= se.end; }
+    var calves = (D.calves || []).filter(function (c) { return inR(c.born); });
+    var st = { born: calves.length, bulls: 0, heifers: 0, unknownSex: 0, alive: 0, died: 0, stillborn: 0 };
+    var wN = 0, wtSum = 0, wtN = 0, bwSum = 0, bwN = 0;
+    calves.forEach(function (c) {
+      if (c.sex === 'bull') st.bulls++; else if (c.sex === 'heifer') st.heifers++; else st.unknownSex++;
+      if (c.status === 'died') st.died++; else if (c.status === 'stillborn') st.stillborn++; else st.alive++;
+      if (num(c.bw) !== null) { bwSum += num(c.bw); bwN++; }
+      if (c.wDate) { wN++; if (num(c.wWt) !== null) { wtSum += num(c.wWt); wtN++; } }
+    });
+    var batches = (D.batches || []).filter(function (b) { return inR(b.bornApprox || b.date); });
+    batches.forEach(function (b) {
+      var n = num(b.count) || 0; wN += n;
+      if (num(b.avgWt) !== null && n) { wtSum += num(b.avgWt) * n; wtN += n; }
+    });
+    st.weanedInd = wN - batches.reduce(function (a, b) { return a + (num(b.count) || 0); }, 0);
+    st.weaned = wN;
+    st.weanRate = st.born ? wN / st.born : null;
+    st.avgWean = wtN ? wtSum / wtN : null;
+    st.avgBw = bwN ? bwSum / bwN : null;
+    st.losses = st.died + st.stillborn;
+    st.cowsBred = se.cowsBred === undefined ? null : se.cowsBred;
+    st.calvingRate = st.cowsBred ? st.born / st.cowsBred : null;
+    st.weanPerCow = st.cowsBred ? wN / st.cowsBred : null;
+    var sales = (D.sales || []).filter(function (s) { return inR(s.date); });
+    var t = { head: 0, kg: 0, gross: 0, ded: 0, net: 0, grossKg: 0, kgN: 0, grossHead: 0, headN: 0 }, byClass = {};
+    sales.forEach(function (s) {
+      var c = calcSale(s);
+      var h = c.head || 0, g = c.gross || 0;
+      t.head += h; t.gross += g; t.ded += c.ded || 0; t.net += c.net || 0;
+      if (c.kg) { t.kg += c.kg; if (c.gross !== null) { t.grossKg += g; t.kgN += c.kg; } }
+      if (h && c.gross !== null) { t.grossHead += g; t.headN += h; }
+      var k = s.cls || 'Unspecified';
+      var bc = byClass[k] || (byClass[k] = { head: 0, kg: 0, gross: 0, net: 0, kgN: 0, grossKg: 0 });
+      bc.head += h; bc.gross += g; bc.net += c.net || 0;
+      if (c.kg) { bc.kg += c.kg; if (c.gross !== null) { bc.kgN += c.kg; bc.grossKg += g; } }
+    });
+    Object.keys(byClass).forEach(function (k) {
+      var b = byClass[k]; b.rkg = b.kgN ? b.grossKg / b.kgN : null; b.rhead = b.head ? b.gross / b.head : null;
+    });
+    st.sales = sales.length; st.headSold = t.head; st.kgSold = t.kg; st.gross = t.gross; st.ded = t.ded; st.net = t.net;
+    st.rkg = t.kgN ? t.grossKg / t.kgN : null; st.rhead = t.headN ? t.grossHead / t.headN : null;
+    st.byClass = byClass;
+    var mv = { purchHead: 0, purchR: 0, deaths: 0, otherIn: 0, otherOut: 0 };
+    (D.moves || []).filter(function (m) { return inR(m.date); }).forEach(function (m) {
+      var h = num(m.head) || 0;
+      if (m.type === 'purchase') { mv.purchHead += h; mv.purchR += num(m.amount) || 0; }
+      else if (m.type === 'death') mv.deaths += h;
+      else if (m.type === 'in') mv.otherIn += h;
+      else mv.otherOut += h;
+    });
+    st.moves = mv;
+    return st;
+  }
+
+  /* Herd estimate from an opening count: + calves born alive, − calves that died,
+     + purchases/other in, − sold, − adult deaths/other out (all after the opening date). */
+  function herdEstimate(D) {
+    var o = D.settings && D.settings.opening;
+    if (!o || num(o.count) === null || !o.date) return null;
+    var after = function (d) { return d && d > o.date; };
+    var r = { opening: num(o.count), date: o.date, bornAlive: 0, calfDeaths: 0, purchased: 0, otherIn: 0, sold: 0, deaths: 0, otherOut: 0 };
+    (D.calves || []).forEach(function (c) {
+      if (!after(c.born) || c.status === 'stillborn') return;
+      r.bornAlive++; if (c.status === 'died') r.calfDeaths++;
+    });
+    (D.sales || []).forEach(function (s) { if (after(s.date)) r.sold += num(s.head) || 0; });
+    (D.moves || []).forEach(function (m) {
+      if (!after(m.date)) return; var h = num(m.head) || 0;
+      if (m.type === 'purchase') r.purchased += h; else if (m.type === 'death') r.deaths += h;
+      else if (m.type === 'in') r.otherIn += h; else r.otherOut += h;
+    });
+    r.total = r.opening + r.bornAlive - r.calfDeaths + r.purchased + r.otherIn - r.sold - r.deaths - r.otherOut;
+    return r;
+  }
+
+  function group(n, dp) {
+    var neg = n < 0, s = Math.abs(n).toFixed(dp), p = s.split('.');
+    p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0');
+    return (neg ? '−' : '') + p.join('.');
+  }
+  function fmtR(n, dp) { n = num(n); if (n === null) return '–'; var s = group(n, dp === undefined ? 2 : dp); return s[0] === '−' ? '−R\u00a0' + s.slice(1) : 'R\u00a0' + s; }
+  function fmtN(n, dp) { n = num(n); return n === null ? '–' : group(n, dp || 0); }
+  function fmtPct(n) { return n === null || n === undefined ? '–' : (n * 100).toFixed(1) + '%'; }
+  function fmtD(iso) { if (!iso) return ''; var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso); return m ? m[3] + '/' + m[2] + '/' + m[1] : String(iso); }
+
+  /* Personal-information guard: SA ID numbers (13 digits) and phone numbers are never stored. */
+  function looksLikePII(s) {
+    s = String(s || '');
+    if (/(^|\D)\d{13}(\D|$)/.test(s.replace(/[\s-]/g, ''))) return true;
+    if (/(\+27|\b0)[\s-]?[1-8]\d[\s-]?\d{3}[\s-]?\d{4}\b/.test(s)) return true;
+    if (/\b\d{10,}\b/.test(s.replace(/[\s-]/g, ''))) return true;
+    return false;
+  }
+
+  function csv(rows) {
+    return '\ufeff' + rows.map(function (r) {
+      return r.map(function (v) {
+        v = v === null || v === undefined ? '' : String(v);
+        return /[",\n\r;]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+      }).join(',');
+    }).join('\r\n');
+  }
+
+  var Calc = { num: num, calcSale: calcSale, seasonList: seasonList, seasonStats: seasonStats, herdEstimate: herdEstimate,
+    addDays: addDays, fmtR: fmtR, fmtN: fmtN, fmtPct: fmtPct, fmtD: fmtD, looksLikePII: looksLikePII, csv: csv };
+  if (typeof module !== 'undefined' && module.exports) module.exports = Calc; else root.Calc = Calc;
+})(this);
+
+</script>
+<script>
+/* Donegal Farm – Herd Tracker (offline, single file). Only uses localStorage keys starting "donegalFarm.v1." */
+'use strict';
+var PFX = 'donegalFarm.v1.', KD = PFX + 'data', KU = PFX + 'ui';
+var C = window.Calc, num = C.num, fR = C.fmtR, fN = C.fmtN, fP = C.fmtPct, fD = C.fmtD;
+var D, U;
+var DEFAULT_CLASSES = ['Weaner calf', 'Heifer', 'Cow', 'Bull', 'Ox', 'Other'];
+function $(s, r) { return (r || document).querySelector(s); }
+function $$(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
+function esc(s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+function today() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function daysSince(iso) { return iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 864e5) : null; }
+
+/* ---------- data ---------- */
+function empty() {
+  return { app: 'donegal-farm', v: 1, seasons: [], cows: [], calves: [], batches: [], sales: [], moves: [],
+    settings: { seasonMode: 'year', classes: DEFAULT_CLASSES.slice(), yearCows: {}, opening: null, lastBackup: null, lastChange: null } };
+}
+function normalize(d) {
+  var e = empty();
+  if (!d || typeof d !== 'object') return e;
+  ['seasons', 'cows', 'calves', 'batches', 'sales', 'moves'].forEach(function (k) { e[k] = Array.isArray(d[k]) ? d[k].filter(function (x) { return x && typeof x === 'object'; }) : []; });
+  var s = d.settings || {};
+  e.settings.seasonMode = s.seasonMode === 'named' ? 'named' : 'year';
+  e.settings.classes = Array.isArray(s.classes) && s.classes.length ? s.classes.map(String) : DEFAULT_CLASSES.slice();
+  e.settings.yearCows = s.yearCows && typeof s.yearCows === 'object' ? s.yearCows : {};
+  e.settings.opening = s.opening || null;
+  e.settings.lastBackup = s.lastBackup || null;
+  e.settings.lastChange = s.lastChange || null;
+  e.sales.forEach(function (x) { if (!Array.isArray(x.calfIds)) x.calfIds = []; });
+  ['seasons', 'cows', 'calves', 'batches', 'sales', 'moves'].forEach(function (k) { e[k].forEach(function (x) { if (!x.id) x.id = uid(); }); });
+  return e;
+}
+function exampleData() {
+  var d = empty(), y = new Date().getFullYear(), p = y - 1, ex = true;
+  function c(born, tag, sex, status, extra) { var o = { id: uid(), born: born, tag: tag, sex: sex, dam: '', bw: '', status: status, note: 'Example record', ex: ex }; for (var k in extra) o[k] = extra[k]; return o; }
+  d.cows = [{ id: uid(), tag: 'EX-COW-1', breed: 'Example breed', birthYear: p - 5, notes: 'Example record', ex: ex },
+            { id: uid(), tag: 'EX-COW-2', breed: 'Example breed', birthYear: p - 3, notes: 'Example record', ex: ex }];
+  d.calves = [
+    c(p + '-10-12', 'EX-01', 'bull', 'alive', { dam: 'EX-COW-1', bw: 35, wDate: y + '-05-20', wWt: 220 }),
+    c(p + '-10-20', 'EX-02', 'heifer', 'alive', { dam: 'EX-COW-2', bw: 32, wDate: y + '-05-20', wWt: 205 }),
+    c(p + '-11-03', 'EX-03', 'bull', 'died', { note: 'Example record – cause of death goes here' }),
+    c(p + '-11-15', '', 'heifer', 'stillborn', {}),
+    c(p + '-10-25', '', 'heifer', 'alive', {}), c(p + '-10-26', '', 'heifer', 'alive', {}), c(p + '-10-28', '', 'bull', 'alive', {}),
+    c(y + '-10-08', 'EX-04', 'heifer', 'alive', { dam: 'EX-COW-1', bw: 33 })];
+  d.batches = [{ id: uid(), date: y + '-05-20', count: 3, avgWt: 210, bornApprox: p + '-10-20', note: 'Example batch weaning', ex: ex }];
+  var sale = { id: uid(), date: y + '-06-10', venue: 'Example auction', buyer: '', head: 2, cls: 'Weaner calf', kg: 425, pkg: 40, phead: '', gross: '', commPct: 5, comm: '', levies: 50, transport: 300, other: '', net: '', calfIds: [d.calves[0].id, d.calves[1].id], note: 'Example record', ex: ex };
+  d.sales = [sale, { id: uid(), date: y + '-06-10', venue: 'Example auction', buyer: '', head: 1, cls: 'Cow', kg: '', pkg: '', phead: 10000, gross: '', commPct: 5, comm: '', levies: 25, transport: 150, other: '', net: '', calfIds: [], note: 'Example record', ex: ex }];
+  d.moves = [{ id: uid(), date: y + '-03-01', type: 'purchase', head: 1, cls: 'Bull', amount: 20000, note: 'Example record', ex: ex }];
+  return d;
+}
+function save() {
+  D.settings.lastChange = new Date().toISOString();
+  try { localStorage.setItem(KD, JSON.stringify(D)); return true; }
+  catch (e) { dlg({ title: 'Could not save', html: '<p>The browser refused to save (' + esc(e.message) + '). Please export a backup from the Data tab now so nothing is lost.</p>' }); return false; }
+}
+function saveUI() { try { localStorage.setItem(KU, JSON.stringify(U)); } catch (e) {} }
+function load() {
+  var raw = null;
+  try { raw = localStorage.getItem(KD); } catch (e) {}
+  try { U = JSON.parse(localStorage.getItem(KU) || '{}') || {}; } catch (e) { U = {}; }
+  if (!U.tab) U.tab = 'dash';
+  if (raw === null) { D = exampleData(); save(); return; }
+  try { D = normalize(JSON.parse(raw)); }
+  catch (e) {
+    try { localStorage.setItem(PFX + 'unreadable-' + Date.now(), raw); } catch (e2) {}
+    D = empty();
+    setTimeout(function () { dlg({ title: 'Saved data could not be read', html: '<p>The stored data was damaged. A copy was kept on this device and the app started empty. Use <b>Data → Import backup</b> to restore your last backup.</p>' }); }, 50);
+  }
+}
+function hasExample() { return ['cows', 'calves', 'batches', 'sales', 'moves', 'seasons'].some(function (k) { return D[k].some(function (x) { return x.ex; }); }); }
+function realCount() { return ['cows', 'calves', 'batches', 'sales', 'moves', 'seasons'].reduce(function (a, k) { return a + D[k].filter(function (x) { return !x.ex; }).length; }, 0); }
+function removeExample() {
+  var gone = {};
+  ['cows', 'calves', 'batches', 'sales', 'moves', 'seasons'].forEach(function (k) { D[k] = D[k].filter(function (x) { if (x.ex) gone[x.id] = 1; return !x.ex; }); });
+  D.sales.forEach(function (s) { s.calfIds = s.calfIds.filter(function (id) { return !gone[id]; }); });
+  save(); render(); toast('Example data removed');
+}
+function exTag(x) { return x && x.ex ? '<span class="tag">EXAMPLE</span>' : ''; }
+function saleOfCalf(id) { for (var i = 0; i < D.sales.length; i++) if (D.sales[i].calfIds.indexOf(id) >= 0) return D.sales[i]; return null; }
+
+/* ---------- dialogs (in-app only) ---------- */
+function dlg(o) {
+  return new Promise(function (resolve) {
+    var ov = document.createElement('div'); ov.className = 'ov';
+    var btns = o.buttons || [{ t: 'OK', v: true, cls: 'pri' }];
+    ov.innerHTML = '<div class="dlg' + (o.wide ? ' wide' : '') + '" role="dialog" aria-modal="true"><h3>' + esc(o.title || '') + '</h3><div class="bd">' + (o.html || '') + '</div><div class="ft">' +
+      btns.map(function (b, i) { return '<button data-i="' + i + '" class="' + (b.cls || '') + '">' + esc(b.t) + '</button>'; }).join('') + '</div></div>';
+    document.body.appendChild(ov);
+    var root = $('.dlg', ov);
+    function close(v) { ov.remove(); resolve(v); }
+    $$('.ft button', ov).forEach(function (el) {
+      el.onclick = function () {
+        var b = btns[+el.dataset.i], v = b.v;
+        if (b.act) { v = b.act(root, close); if (v === false) return; }
+        close(v === undefined ? b.v : v);
+      };
+    });
+    ov.addEventListener('keydown', function (e) { if (e.key === 'Escape' && btns.some(function (b) { return b.v === false || b.v === null; })) close(null); });
+    if (o.onOpen) o.onOpen(root, close);
+    var f = $('input,select,textarea', root); if (f && o.focus !== false && window.innerWidth > 600) f.focus();
+  });
+}
+function info(title, html) { return dlg({ title: title, html: html }); }
+function backupLine() {
+  var lb = D.settings.lastBackup;
+  return lb ? 'Last backup: ' + fD(lb.slice(0, 10)) + ' (' + daysSince(lb) + ' day(s) ago).' : '<b>No backup has been made on this device yet.</b>';
+}
+function confirmDel(what) {
+  return dlg({ title: 'Delete ' + what + '?', html: '<p>This permanently deletes ' + esc(what) + ' from this device.</p><p class="muted small">' + backupLine() + '</p>',
+    buttons: [{ t: 'Cancel', v: false }, { t: 'Delete', v: true, cls: 'danger' }] });
+}
+var toastT;
+function toast(m) { var t = $('#toast'); t.textContent = m; t.className = 'on'; clearTimeout(toastT); toastT = setTimeout(function () { t.className = ''; }, 2200); }
+
+/* ---------- forms ---------- */
+function fieldHTML(f, o) {
+  var v = o[f.k]; if (v === undefined || v === null) v = f.def !== undefined ? f.def : '';
+  var cls = f.wide ? ' wide' : '';
+  var lab = '<span>' + esc(f.label) + (f.hint ? ' <i class="muted">' + esc(f.hint) + '</i>' : '') + '</span>';
+  if (f.type === 'select') return '<label class="f' + cls + '">' + lab + '<select data-k="' + f.k + '">' + f.opts.map(function (op) { var val = Array.isArray(op) ? op[0] : op, l = Array.isArray(op) ? op[1] : op; return '<option value="' + esc(val) + '"' + (String(v) === String(val) ? ' selected' : '') + '>' + esc(l) + '</option>'; }).join('') + '</select></label>';
+  if (f.type === 'textarea') return '<label class="f' + cls + '">' + lab + '<textarea data-k="' + f.k + '" maxlength="2000">' + esc(v) + '</textarea></label>';
+  return '<label class="f' + cls + '">' + lab + '<input data-k="' + f.k + '" type="' + (f.type || 'text') + '"' + (f.type === 'number' ? ' inputmode="decimal" step="any"' : '') + (f.list ? ' list="' + f.list + '"' : '') + ' value="' + esc(v) + '" maxlength="200"></label>';
+}
+function formHTML(fields, o) { return '<div class="grid">' + fields.map(function (f) { return fieldHTML(f, o); }).join('') + '</div>'; }
+function readForm(root, fields) {
+  var o = {};
+  fields.forEach(function (f) {
+    var el = $('[data-k="' + f.k + '"]', root); if (!el) return;
+    var v = el.value.trim();
+    o[f.k] = f.type === 'number' ? (v === '' ? '' : (num(v) === null ? '' : num(v))) : v;
+  });
+  return o;
+}
+function piiFail(o, fields) {
+  var bad = fields.filter(function (f) { return f.type !== 'number' && f.type !== 'date' && f.type !== 'select' && C.looksLikePII(o[f.k]); });
+  if (!bad.length) return false;
+  info('Personal numbers not allowed', '<p>“' + esc(bad.map(function (f) { return f.label; }).join('”, “')) + '” looks like it contains an ID or cell number. This app never stores ID or cell numbers – please remove it and save again.</p>');
+  return true;
+}
+function setWarn(root, list) { var w = $('.warns', root); if (w) w.innerHTML = list.map(function (x) { return '⚠ ' + esc(x); }).join('<br>'); }
+
+/* ---------- seasons ---------- */
+function seasons() { return C.seasonList(D, D.settings.seasonMode); }
+function curSeason() {
+  var l = seasons(), s = l.filter(function (x) { return x.key === U.season; })[0];
+  return s || l[l.length - 1];
+}
+function seasonOpts(withAll) {
+  var l = seasons();
+  return (withAll ? [['', 'All seasons']] : []).concat(l.slice().reverse().map(function (s) { return [s.key, s.name]; }));
+}
+function inSeason(key, date) {
+  if (!key) return true;
+  var s = seasons().filter(function (x) { return x.key === key; })[0];
+  return !s || (!!date && date >= s.start && date <= s.end);
+}
+function seasonSelect(id, val, withAll) {
+  return '<select id="' + id + '" style="width:auto">' + seasonOpts(withAll).map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === val ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>';
+}
+
+/* ---------- charts (plain SVG) ---------- */
+function barChart(title, labels, series, fmt, legend) {
+  var W = 360, H = 190, L = 46, B = 34, T = 14, n = labels.length || 1;
+  var tot = labels.map(function (_, i) { return series.reduce(function (a, s) { return a + Math.max(0, s.vals[i] || 0); }, 0); });
+  var max = Math.max.apply(null, tot.concat([0])) || 1;
+  var bw = Math.min(40, (W - L - 8) / n * 0.65), g = '';
+  for (var k = 0; k <= 4; k++) {
+    var yv = max * k / 4, yy = H - B - (H - B - T) * k / 4;
+    g += '<line x1="' + L + '" x2="' + (W - 4) + '" y1="' + yy + '" y2="' + yy + '" stroke="#e3e6e1"/><text x="' + (L - 4) + '" y="' + (yy + 4) + '" font-size="10" text-anchor="end" fill="#5f6b63">' + esc(fmt(yv, true)) + '</text>';
+  }
+  labels.forEach(function (lab, i) {
+    var x = L + (W - L - 8) * (i + 0.5) / n - bw / 2, y0 = H - B;
+    series.forEach(function (s) {
+      var v = Math.max(0, s.vals[i] || 0), h = (H - B - T) * v / max;
+      if (h > 0) g += '<rect x="' + x.toFixed(1) + '" y="' + (y0 - h).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + h.toFixed(1) + '" fill="' + s.color + '"><title>' + esc(lab + ' ' + s.name + ': ' + fmt(s.vals[i])) + '</title></rect>';
+      y0 -= h;
+    });
+    var raw = series.reduce(function (a, s) { return s.vals[i] === null || s.vals[i] === undefined ? a : (a === null ? 0 : a) + s.vals[i]; }, null);
+    if (raw !== null) g += '<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (y0 - 3).toFixed(1) + '" font-size="10" text-anchor="middle" fill="#1d2420">' + esc(fmt(raw, true)) + '</text>';
+    g += '<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (H - B + 14) + '" font-size="10.5" text-anchor="middle" fill="#1d2420">' + esc(lab.length > 14 ? lab.slice(0, 13) + '…' : lab) + '</text>';
+  });
+  return '<div class="chart"><b class="small">' + esc(title) + '</b>' + (legend ? '<div class="legend">' + series.map(function (s) { return '<i style="background:' + s.color + '"></i>' + esc(s.name); }).join('') + '</div>' : '') +
+    '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(title) + '">' + g + '<line x1="' + L + '" x2="' + (W - 4) + '" y1="' + (H - B) + '" y2="' + (H - B) + '" stroke="#888"/></svg></div>';
+}
+function chartsHTML(list) {
+  var labs = list.map(function (s) { return s.name; }), st = list.map(function (s) { return C.seasonStats(D, s); });
+  function k(v, short) { return short && Math.abs(v) >= 1000 ? (v / 1000).toFixed(Math.abs(v) >= 1e5 ? 0 : 1) + 'k' : fN(v); }
+  return '<div class="charts">' +
+    barChart('Calves born', labs, [{ name: 'Bull', color: '#3b6ea8', vals: st.map(function (s) { return s.bulls; }) }, { name: 'Heifer', color: '#c0607e', vals: st.map(function (s) { return s.heifers; }) }, { name: 'Unknown', color: '#aaa', vals: st.map(function (s) { return s.unknownSex; }) }], function (v) { return fN(v); }, true) +
+    barChart('Weaning rate (%)', labs, [{ name: 'Weaned', color: '#4f8a5b', vals: st.map(function (s) { return s.weanRate === null ? null : Math.round(s.weanRate * 1000) / 10; }) }], function (v) { return v === null || v === undefined ? '–' : (+v).toFixed(0); }) +
+    barChart('Average R/kg', labs, [{ name: 'R/kg', color: '#b5832b', vals: st.map(function (s) { return s.rkg; }) }], function (v) { return v === null || v === undefined ? '–' : (+v).toFixed(2); }) +
+    barChart('Net income (R)', labs, [{ name: 'Net', color: '#2f5d3a', vals: st.map(function (s) { return s.sales ? s.net : null; }) }], k) +
+    '</div>';
+}
+
+/* ---------- banners ---------- */
+function renderBanners() {
+  var h = '';
+  if (hasExample()) h += '<div class="banner ex"><span><b>Example data</b> is loaded (rows marked <span class="tag">EXAMPLE</span>). These are made-up records to show how the app works – not farm figures.</span><button id="bRemEx" class="pri">Remove example data</button></div>';
+  var lb = D.settings.lastBackup, lc = D.settings.lastChange, n = realCount();
+  var stale = n > 0 && (!lb || (lc && lc > lb && daysSince(lb) >= 7));
+  if (stale) h += '<div class="banner bk"><span>💾 ' + (lb ? 'Last backup was ' + daysSince(lb) + ' days ago and data has changed since.' : 'You have not made a backup yet.') + ' Data lives only in this browser.</span><button id="bBk">Export backup</button></div>';
+  $('#banners').innerHTML = h;
+  if ($('#bRemEx')) $('#bRemEx').onclick = removeExample;
+  if ($('#bBk')) $('#bBk').onclick = exportJSON;
+}
+
+/* ---------- render ---------- */
+function render() {
+  $$('#tabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.t === U.tab); });
+  renderBanners();
+  var m = $('#main');
+  ({ dash: rDash, calves: rCalves, wean: rWean, sales: rSales, herd: rHerd, setup: rSetup, data: rData }[U.tab] || rDash)(m);
+  saveUI();
+}
+function stat(label, val, sub) { return '<div class="stat"><span>' + esc(label) + '</span><b>' + val + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</div>'; }
+
+function rDash(m) {
+  var se = curSeason(), s = C.seasonStats(D, se), list = seasons();
+  var named = D.settings.seasonMode === 'named';
+  var h = '<div class="row"><h2 class="sp">Season ' + seasonSelect('dSeason', se.key) + '</h2><button id="dPrint" class="pri">Print / PDF report</button></div>';
+  if (named && !D.seasons.length) h += '<div class="warns">Named seasons are switched on but none are set up yet – showing calendar years. Add seasons on the Setup tab.</div>';
+  h += '<p class="muted small">' + fD(se.start) + ' – ' + fD(se.end) + '. Calves and weaning count by birth date in this season; sales and movements by their own date.</p>';
+  h += '<div class="stats">' +
+    stat('Calves born', fN(s.born), s.bulls + ' bull · ' + s.heifers + ' heifer' + (s.unknownSex ? ' · ' + s.unknownSex + ' ?' : '')) +
+    stat('Calf losses', fN(s.losses), s.died + ' died · ' + s.stillborn + ' stillborn') +
+    stat('Weaned', fN(s.weaned), s.weanedInd + ' individual · ' + (s.weaned - s.weanedInd) + ' batch') +
+    stat('Weaning rate', fP(s.weanRate), s.weanRate > 1 ? '⚠ more weaned than calves recorded – record births too' : 'weaned ÷ calves born') +
+    stat('Avg weaning weight', s.avgWean === null ? '–' : fN(s.avgWean, 1) + ' kg', s.avgBw === null ? '' : 'avg birth wt ' + fN(s.avgBw, 1) + ' kg') +
+    stat('Head sold', fN(s.headSold), s.sales + ' sale(s)') +
+    stat('Total kg sold', s.kgSold ? fN(s.kgSold) + ' kg' : '–') +
+    stat('Average R/kg', s.rkg === null ? '–' : fR(s.rkg)) +
+    stat('Average R/head', s.rhead === null ? '–' : fR(s.rhead, 0)) +
+    stat('Gross income', fR(s.gross, 0)) +
+    stat('Deductions', fR(s.ded, 0), 'commission, levies, transport') +
+    stat('Net income', fR(s.net, 0)) +
+    stat('Bought in', fN(s.moves.purchHead) + ' head', s.moves.purchR ? fR(s.moves.purchR, 0) : '') +
+    stat('Adult deaths', fN(s.moves.deaths)) + '</div>';
+  h += '<div class="card" style="margin-top:12px"><div class="row"><label class="chk small">Cows put to the bull this season (optional): <input id="dCows" type="number" inputmode="numeric" style="width:100px" value="' + esc(s.cowsBred === null ? '' : s.cowsBred) + '"></label>' +
+    (s.cowsBred ? '<span class="small">Calving rate <b>' + fP(s.calvingRate) + '</b> · Weaned per cow <b>' + fP(s.weanPerCow) + '</b></span>' : '') + '</div></div>';
+  var bc = Object.keys(s.byClass);
+  if (bc.length) {
+    h += '<h3>Sales by class</h3><div class="tw"><table><thead><tr><th>Class</th><th class="n">Head</th><th class="n">kg</th><th class="n">Avg R/kg</th><th class="n">Avg R/head</th><th class="n">Gross</th><th class="n">Net</th></tr></thead><tbody>' +
+      bc.map(function (k) { var b = s.byClass[k]; return '<tr><td>' + esc(k) + '</td><td class="n">' + fN(b.head) + '</td><td class="n">' + (b.kg ? fN(b.kg) : '–') + '</td><td class="n">' + fR(b.rkg) + '</td><td class="n">' + fR(b.rhead, 0) + '</td><td class="n">' + fR(b.gross, 0) + '</td><td class="n">' + fR(b.net, 0) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+  }
+  h += '<h3>Year-on-year</h3>' + yoyTable(list) + '<h3>Charts</h3>' + chartsHTML(list);
+  m.innerHTML = h;
+  $('#dSeason').onchange = function () { U.season = this.value; render(); };
+  $('#dPrint').onclick = function () { printReport(se); };
+  $('#dCows').onchange = function () {
+    var v = this.value.trim() === '' ? '' : num(this.value);
+    if (se.named) { var o = D.seasons.filter(function (x) { return x.id === se.key; })[0]; if (o) o.cowsBred = v; }
+    else D.settings.yearCows[se.name] = v;
+    save(); render();
+  };
+}
+function yoyRows() {
+  return [['Calves born', function (s) { return fN(s.born); }], ['Bull / heifer', function (s) { return s.bulls + ' / ' + s.heifers; }],
+    ['Died / stillborn', function (s) { return s.died + ' / ' + s.stillborn; }], ['Weaned', function (s) { return fN(s.weaned); }],
+    ['Weaning rate', function (s) { return fP(s.weanRate); }], ['Avg weaning wt', function (s) { return s.avgWean === null ? '–' : fN(s.avgWean, 1) + ' kg'; }],
+    ['Head sold', function (s) { return fN(s.headSold); }], ['kg sold', function (s) { return s.kgSold ? fN(s.kgSold) : '–'; }],
+    ['Avg R/kg', function (s) { return fR(s.rkg); }], ['Avg R/head', function (s) { return fR(s.rhead, 0); }],
+    ['Gross', function (s) { return fR(s.gross, 0); }], ['Net', function (s) { return fR(s.net, 0); }],
+    ['Bought in (head)', function (s) { return fN(s.moves.purchHead); }], ['Adult deaths', function (s) { return fN(s.moves.deaths); }]];
+}
+function yoyTable(list) {
+  var st = list.map(function (s) { return C.seasonStats(D, s); });
+  return '<div class="tw"><table class="yoy"><thead><tr><th></th>' + list.map(function (s) { return '<th class="n">' + esc(s.name) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+    yoyRows().map(function (r) { return '<tr><td>' + r[0] + '</td>' + st.map(function (s) { return '<td class="n">' + r[1](s) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
+}
+
+/* ---------- calves ---------- */
+var STATUS = [['alive', 'Alive'], ['died', 'Died'], ['stillborn', 'Stillborn']];
+function calfFields(isNew) {
+  var f = [{ k: 'born', label: 'Date born', type: 'date', def: today() }, { k: 'tag', label: 'Tag / name', hint: 'optional' },
+    { k: 'sex', label: 'Sex', type: 'select', opts: [['bull', 'Bull calf'], ['heifer', 'Heifer calf'], ['', 'Unknown']] },
+    { k: 'dam', label: 'Dam tag', hint: 'optional', list: 'damList' }, { k: 'bw', label: 'Birth weight kg', type: 'number', hint: 'optional' },
+    { k: 'status', label: 'Status', type: 'select', opts: STATUS }, { k: 'note', label: 'Notes / cause of death', type: 'textarea', wide: true },
+    { k: 'wDate', label: 'Weaned on', type: 'date', hint: 'optional' }, { k: 'wWt', label: 'Weaning weight kg', type: 'number', hint: 'optional' }];
+  if (isNew) f.push({ k: 'count', label: 'How many calves with these details', type: 'number', def: 1, hint: 'for untagged calves' });
+  return f;
+}
+function calfWarn(o) {
+  var w = [];
+  if (o.born && o.born > today()) w.push('Birth date is in the future.');
+  if (o.bw !== '' && (o.bw < 10 || o.bw > 80)) w.push('Birth weight of ' + o.bw + ' kg looks unusual.');
+  if (o.wDate && o.born && o.wDate < o.born) w.push('Weaning date is before the birth date.');
+  if (o.wWt !== '' && (o.wWt < 50 || o.wWt > 450)) w.push('Weaning weight of ' + o.wWt + ' kg looks unusual.');
+  if (o.wDate && o.status !== 'alive') w.push('A calf marked ' + o.status + ' has a weaning date.');
+  if (o.count > 50) w.push('That adds ' + o.count + ' calves at once.');
+  if (o.tag && D.calves.some(function (c) { return c.tag === o.tag && c.id !== o.id; })) w.push('Another calf already has tag ' + o.tag + '.');
+  return w;
+}
+function editCalf(c) {
+  var isNew = !c, fields = calfFields(isNew); c = c || { status: 'alive', sex: 'bull' };
+  var dams = '<datalist id="damList">' + D.cows.map(function (x) { return '<option value="' + esc(x.tag) + '">'; }).join('') + '</datalist>';
+  var btns = [{ t: 'Cancel', v: null }, { t: 'Save', cls: 'pri', act: function (root) {
+    var o = readForm(root, fields);
+    if (!o.born) { setWarn(root, ['Date born is needed so the calf lands in the right season.']); return false; }
+    if (piiFail(o, fields)) return false;
+    var n = isNew ? Math.max(1, Math.round(num(o.count) || 1)) : 1; delete o.count;
+    if (isNew) { for (var i = 0; i < n; i++) { var x = Object.assign({ id: uid() }, o); if (n > 1 && o.tag) x.tag = o.tag + '-' + (i + 1); D.calves.push(x); } }
+    else { Object.assign(c, o); delete c.ex; }
+    save(); render(); toast(isNew ? (n > 1 ? n + ' calves added' : 'Calf added') : 'Calf saved');
+  } }];
+  if (!isNew) btns.unshift({ t: 'Delete', cls: 'danger left', act: function (root, close) {
+    confirmDel('this calf record').then(function (ok) { if (!ok) return; D.calves = D.calves.filter(function (x) { return x !== c; }); D.sales.forEach(function (s) { s.calfIds = s.calfIds.filter(function (id) { return id !== c.id; }); }); save(); render(); close(); toast('Calf deleted'); });
+    return false; } });
+  var sold = !isNew && saleOfCalf(c.id);
+  dlg({ title: isNew ? 'Add calf' : 'Edit calf', html: (c.ex ? '<p class="small"><span class="tag">EXAMPLE</span> Saving changes makes this a normal record.</p>' : '') + formHTML(fields, c) + dams + (sold ? '<p class="small muted">Sold on ' + fD(sold.date) + ' at ' + esc(sold.venue || 'auction') + '.</p>' : '') + '<div class="warns"></div>', buttons: btns,
+    onOpen: function (root) { root.addEventListener('input', function () { var o = readForm(root, fields); o.id = c.id; setWarn(root, calfWarn(o)); }); } });
+}
+function rCalves(m) {
+  var f = U.calfSeason || '';
+  var list = D.calves.filter(function (c) { return inSeason(f, c.born); }).sort(function (a, b) { return a.born < b.born ? 1 : -1; });
+  var h = '<div class="row"><h2 class="sp">Calves</h2>' + seasonSelect('cSeason', f, true) + '<button id="cAdd" class="pri">+ Add calf</button></div>';
+  h += '<p class="muted small">' + list.length + ' calf record(s). Tap a row to edit. Tags and dam are optional; use “How many” to add several untagged calves at once.</p>';
+  h += '<div class="tw"><table><thead><tr><th>Born</th><th>Tag</th><th>Sex</th><th>Dam</th><th class="n">Birth kg</th><th>Status</th><th>Weaned</th><th class="n">Wean kg</th><th>Sold</th><th>Notes</th></tr></thead><tbody>' +
+    (list.length ? list.map(function (c) { var s = saleOfCalf(c.id);
+      return '<tr class="click" data-id="' + c.id + '"><td>' + fD(c.born) + '</td><td>' + (esc(c.tag) || '<span class="muted">–</span>') + exTag(c) + '</td><td>' + (c.sex === 'bull' ? 'Bull' : c.sex === 'heifer' ? 'Heifer' : '?') + '</td><td>' + esc(c.dam) + '</td><td class="n">' + fN(c.bw, 1) + '</td><td>' +
+        (c.status === 'died' || c.status === 'stillborn' ? '<span class="tag d">' + (c.status === 'died' ? 'Died' : 'Stillborn') + '</span>' : 'Alive') + '</td><td>' + fD(c.wDate) + '</td><td class="n">' + fN(c.wWt, 1) + '</td><td>' + (s ? '<span class="tag s">' + fD(s.date) + '</span>' : '') + '</td><td class="wrap small">' + esc(c.note) + '</td></tr>'; }).join('')
+      : '<tr><td colspan="10" class="muted">No calves recorded' + (f ? ' in this season' : '') + ' yet.</td></tr>') + '</tbody></table></div>';
+  m.innerHTML = h;
+  $('#cSeason').onchange = function () { U.calfSeason = this.value; render(); };
+  $('#cAdd').onclick = function () { editCalf(null); };
+  $$('tr[data-id]', m).forEach(function (tr) { tr.onclick = function () { editCalf(D.calves.filter(function (c) { return c.id === tr.dataset.id; })[0]); }; });
+}
+
+/* ---------- weaning ---------- */
+var BATCH_F = [{ k: 'date', label: 'Weaning date', type: 'date', def: today() }, { k: 'count', label: 'Number weaned', type: 'number' },
+  { k: 'avgWt', label: 'Average weight kg', type: 'number', hint: 'optional' }, { k: 'bornApprox', label: 'Calves born around', type: 'date', hint: 'sets the season' },
+  { k: 'note', label: 'Notes', type: 'textarea', wide: true }];
+function editBatch(b) {
+  var isNew = !b; b = b || { date: today(), bornApprox: C.addDays(today(), -210) };
+  var touched = !isNew;
+  var btns = [{ t: 'Cancel', v: null }, { t: 'Save', cls: 'pri', act: function (root) {
+    var o = readForm(root, BATCH_F);
+    if (!o.date || !(o.count > 0)) { setWarn(root, ['Enter the weaning date and number of calves.']); return false; }
+    if (piiFail(o, BATCH_F)) return false;
+    if (!o.bornApprox) o.bornApprox = C.addDays(o.date, -210);
+    if (isNew) D.batches.push(Object.assign({ id: uid() }, o)); else { Object.assign(b, o); delete b.ex; }
+    save(); render(); toast('Batch weaning saved');
+  } }];
+  if (!isNew) btns.unshift({ t: 'Delete', cls: 'danger left', act: function (root, close) { confirmDel('this batch weaning entry').then(function (ok) { if (!ok) return; D.batches = D.batches.filter(function (x) { return x !== b; }); save(); render(); close(); }); return false; } });
+  dlg({ title: isNew ? 'Batch weaning' : 'Edit batch weaning', html: '<p class="small muted">For calves that are not tagged individually. “Calves born around” decides which season’s calf crop this belongs to (default: 7 months before weaning).</p>' + formHTML(BATCH_F, b) + '<div class="warns"></div>', buttons: btns,
+    onOpen: function (root) {
+      $('[data-k=bornApprox]', root).addEventListener('input', function () { touched = true; });
+      $('[data-k=date]', root).addEventListener('input', function () { if (!touched && this.value) $('[data-k=bornApprox]', root).value = C.addDays(this.value, -210); });
+      root.addEventListener('input', function () { var o = readForm(root, BATCH_F), w = []; if (o.avgWt !== '' && (o.avgWt < 50 || o.avgWt > 450)) w.push('Average weight looks unusual.'); if (o.count > 1000) w.push('That is a very large batch.'); setWarn(root, w); });
+    } });
+}
+function weanIndividual() {
+  var cand = D.calves.filter(function (c) { return c.status !== 'died' && c.status !== 'stillborn' && !c.wDate; }).sort(function (a, b) { return a.born < b.born ? -1 : 1; });
+  if (!cand.length) { info('Nothing to wean', '<p>There are no live, unweaned calves on record. Use <b>Batch weaning</b> for untagged calves.</p>'); return; }
+  var h = '<label class="f"><span>Weaning date</span><input id="wDate" type="date" value="' + today() + '"></label><p class="small muted">Tick the calves weaned and enter weights (optional).</p><div class="picklist">' +
+    cand.map(function (c) { return '<label><input type="checkbox" data-c="' + c.id + '"><span>' + (esc(c.tag) || '(untagged)') + exTag(c) + ' <span class="muted small">' + esc(c.sex || '?') + ', born ' + fD(c.born) + '</span></span><input type="number" inputmode="decimal" step="any" placeholder="kg" data-w="' + c.id + '"></label>'; }).join('') + '</div><div class="warns"></div>';
+  dlg({ title: 'Wean calves', html: h, buttons: [{ t: 'Cancel', v: null }, { t: 'Save', cls: 'pri', act: function (root) {
+    var d = $('#wDate', root).value, ids = $$('[data-c]:checked', root).map(function (e) { return e.dataset.c; });
+    if (!d || !ids.length) { setWarn(root, ['Pick a date and at least one calf.']); return false; }
+    ids.forEach(function (id) { var c = D.calves.filter(function (x) { return x.id === id; })[0]; c.wDate = d; var w = num($('[data-w="' + id + '"]', root).value); c.wWt = w === null ? '' : w; });
+    save(); render(); toast(ids.length + ' calf/calves weaned');
+  } }], onOpen: function (root) { root.addEventListener('input', function (e) { if (e.target.dataset.w && e.target.value) $('[data-c="' + e.target.dataset.w + '"]', root).checked = true; }); } });
+}
+function rWean(m) {
+  var f = U.weanSeason || '';
+  var ind = D.calves.filter(function (c) { return c.wDate && inSeason(f, c.born); }).sort(function (a, b) { return a.wDate < b.wDate ? 1 : -1; });
+  var bat = D.batches.filter(function (b) { return inSeason(f, b.bornApprox || b.date); }).sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+  var h = '<div class="row"><h2 class="sp">Weaning</h2>' + seasonSelect('wSeason', f, true) + '<button id="wInd" class="pri">Wean tagged calves</button><button id="wBat">+ Batch weaning</button></div>';
+  h += '<p class="muted small">Season filter uses the calves’ birth season.</p><h3>Individually weaned calves (' + ind.length + ')</h3><div class="tw"><table><thead><tr><th>Weaned</th><th>Tag</th><th>Sex</th><th>Born</th><th class="n">Weight kg</th></tr></thead><tbody>' +
+    (ind.length ? ind.map(function (c) { return '<tr class="click" data-c="' + c.id + '"><td>' + fD(c.wDate) + '</td><td>' + (esc(c.tag) || '–') + exTag(c) + '</td><td>' + esc(c.sex || '?') + '</td><td>' + fD(c.born) + '</td><td class="n">' + fN(c.wWt, 1) + '</td></tr>'; }).join('') : '<tr><td colspan="5" class="muted">None yet.</td></tr>') + '</tbody></table></div>';
+  h += '<h3>Batch weaning entries (' + bat.length + ')</h3><div class="tw"><table><thead><tr><th>Date</th><th class="n">Count</th><th class="n">Avg kg</th><th>Born around</th><th>Notes</th></tr></thead><tbody>' +
+    (bat.length ? bat.map(function (b) { return '<tr class="click" data-b="' + b.id + '"><td>' + fD(b.date) + exTag(b) + '</td><td class="n">' + fN(b.count) + '</td><td class="n">' + fN(b.avgWt, 1) + '</td><td>' + fD(b.bornApprox) + '</td><td class="wrap small">' + esc(b.note) + '</td></tr>'; }).join('') : '<tr><td colspan="5" class="muted">None yet.</td></tr>') + '</tbody></table></div>';
+  m.innerHTML = h;
+  $('#wSeason').onchange = function () { U.weanSeason = this.value; render(); };
+  $('#wInd').onclick = weanIndividual; $('#wBat').onclick = function () { editBatch(null); };
+  $$('tr[data-c]', m).forEach(function (tr) { tr.onclick = function () { editCalf(D.calves.filter(function (c) { return c.id === tr.dataset.c; })[0]); }; });
+  $$('tr[data-b]', m).forEach(function (tr) { tr.onclick = function () { editBatch(D.batches.filter(function (b) { return b.id === tr.dataset.b; })[0]); }; });
+}
+
+/* ---------- sales ---------- */
+function saleFields() {
+  return [{ k: 'date', label: 'Sale date', type: 'date', def: today() }, { k: 'venue', label: 'Auction / venue' }, { k: 'buyer', label: 'Buyer', hint: 'optional, name only' },
+    { k: 'cls', label: 'Class', type: 'select', opts: D.settings.classes }, { k: 'head', label: 'Number of head', type: 'number' },
+    { k: 'kg', label: 'Total live weight kg', type: 'number' }, { k: 'pkg', label: 'Price R/kg', type: 'number' }, { k: 'phead', label: 'Price R/head', type: 'number' },
+    { k: 'gross', label: 'Gross amount R', type: 'number' }, { k: 'commPct', label: 'Commission %', type: 'number' }, { k: 'comm', label: 'Commission R', type: 'number', hint: 'or use %' },
+    { k: 'levies', label: 'Levies / fees R', type: 'number' }, { k: 'transport', label: 'Transport R', type: 'number' }, { k: 'other', label: 'Other deductions R', type: 'number' },
+    { k: 'net', label: 'Net amount R', type: 'number', hint: 'blank = worked out' }, { k: 'note', label: 'Notes', type: 'textarea', wide: true }];
+}
+function calcBox(r) {
+  function row(l, k, v) { return '<tr><td>' + l + '</td><td class="n"><b>' + v + '</b></td><td class="muted small">' + (r.derived[k] ? 'worked out: ' + esc(r.derived[k]) : '') + '</td></tr>'; }
+  return '<table>' + row('Gross', 'gross', fR(r.gross)) + row('Commission', 'comm', fR(r.comm)) + row('All deductions', 'ded', fR(r.ded)) + row('Net', 'net', fR(r.net)) +
+    row('R/kg', 'pkg', fR(r.pkg)) + row('R/head', 'phead', fR(r.phead)) + (r.avgKg ? row('Avg kg/head', 'x', fN(r.avgKg, 1)) : '') + '</table>';
+}
+function editSale(s) {
+  var isNew = !s, fields = saleFields(); s = s || { cls: D.settings.classes[0], calfIds: [] };
+  var cand = D.calves.filter(function (c) { if (s.calfIds.indexOf(c.id) >= 0) return true; return c.status !== 'died' && c.status !== 'stillborn' && !saleOfCalf(c.id); }).sort(function (a, b) { return a.born < b.born ? -1 : 1; });
+  var link = '<details' + (s.calfIds.length ? ' open' : '') + '><summary class="small"><b>Link specific calves (optional)</b> – ' + cand.length + ' available</summary><div class="picklist">' +
+    (cand.length ? cand.map(function (c) { return '<label><input type="checkbox" data-link="' + c.id + '"' + (s.calfIds.indexOf(c.id) >= 0 ? ' checked' : '') + '><span>' + (esc(c.tag) || '(untagged)') + exTag(c) + ' <span class="muted small">' + esc(c.sex || '?') + ', born ' + fD(c.born) + (c.wWt ? ', weaned ' + esc(c.wWt) + ' kg' : '') + '</span></span></label>'; }).join('') : '<p class="muted small" style="padding:6px">No unsold live calves on record.</p>') + '</div></details>';
+  function read(root) { var o = readForm(root, fields); o.calfIds = $$('[data-link]:checked', root).map(function (e) { return e.dataset.link; }); return o; }
+  function upd(root) {
+    var o = read(root), r = C.calcSale(o), w = r.warn.slice();
+    $('#saleCalc', root).innerHTML = calcBox(r);
+    ['gross', 'pkg', 'phead', 'comm', 'net'].forEach(function (k) { var el = $('[data-k=' + k + ']', root); el.placeholder = r.derived[k] && r[k] !== null ? 'auto: ' + r[k].toFixed(2) : ''; });
+    if (o.calfIds.length && o.head !== '' && o.calfIds.length !== o.head) w.push(o.calfIds.length + ' calves linked but ' + o.head + ' head entered.');
+    if (o.head === '') w.push('Number of head is blank.');
+    setWarn(root, w);
+  }
+  var btns = [{ t: 'Cancel', v: null }, { t: 'Save sale', cls: 'pri', act: function (root) {
+    var o = read(root);
+    if (!o.date) { setWarn(root, ['Enter the sale date.']); return false; }
+    if (piiFail(o, fields)) return false;
+    if (o.head === '' && o.calfIds.length) o.head = o.calfIds.length;
+    if (isNew) D.sales.push(Object.assign({ id: uid() }, o)); else { Object.assign(s, o); delete s.ex; }
+    save(); render(); toast('Sale saved');
+  } }];
+  if (!isNew) btns.unshift({ t: 'Delete', cls: 'danger left', act: function (root, close) { confirmDel('this sale').then(function (ok) { if (!ok) return; D.sales = D.sales.filter(function (x) { return x !== s; }); save(); render(); close(); toast('Sale deleted'); }); return false; } });
+  dlg({ title: isNew ? 'Record auction sale' : 'Edit sale', wide: true, buttons: btns,
+    html: (s.ex ? '<p class="small"><span class="tag">EXAMPLE</span> Saving changes makes this a normal record.</p>' : '') + '<p class="small muted">Fill in what is on the auction slip – the rest is worked out (e.g. kg × R/kg = gross; gross − commission − levies − transport − other = net). Don’t enter ID or cell numbers.</p>' +
+      formHTML(fields, s) + '<div class="calcbox" id="saleCalc"></div><div class="warns"></div>' + link,
+    onOpen: function (root) { root.addEventListener('input', function () { upd(root); }); root.addEventListener('change', function () { upd(root); }); upd(root); } });
+}
+function rSales(m) {
+  var f = U.saleSeason || '';
+  var list = D.sales.filter(function (s) { return inSeason(f, s.date); }).sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+  var T = { head: 0, kg: 0, gross: 0, ded: 0, net: 0 };
+  var h = '<div class="row"><h2 class="sp">Auction sales</h2>' + seasonSelect('sSeason', f, true) + '<button id="sAdd" class="pri">+ Record sale</button></div><p class="muted small">Values in <i>italics</i> were worked out from the others. Tap a row to edit.</p>';
+  h += '<div class="tw"><table><thead><tr><th>Date</th><th>Auction / venue</th><th>Buyer</th><th>Class</th><th class="n">Head</th><th class="n">kg</th><th class="n">R/kg</th><th class="n">R/head</th><th class="n">Gross</th><th class="n">Deductions</th><th class="n">Net</th></tr></thead><tbody>' +
+    (list.length ? list.map(function (s) {
+      var r = C.calcSale(s); T.head += r.head || 0; T.kg += r.kg || 0; T.gross += r.gross || 0; T.ded += r.ded || 0; T.net += r.net || 0;
+      function v(k, txt) { return r.derived[k] ? '<i>' + txt + '</i>' : txt; }
+      return '<tr class="click" data-id="' + s.id + '"><td>' + fD(s.date) + exTag(s) + (r.warn.length ? ' <span title="' + esc(r.warn.join(' ')) + '">⚠</span>' : '') + '</td><td>' + esc(s.venue) + '</td><td>' + esc(s.buyer) + '</td><td>' + esc(s.cls) + (s.calfIds.length ? ' <span class="muted small">(' + s.calfIds.length + ' linked)</span>' : '') + '</td><td class="n">' + fN(r.head) + '</td><td class="n">' + fN(r.kg) + '</td><td class="n">' + v('pkg', fR(r.pkg)) + '</td><td class="n">' + v('phead', fR(r.phead, 0)) + '</td><td class="n">' + v('gross', fR(r.gross)) + '</td><td class="n">' + fR(r.ded) + '</td><td class="n">' + v('net', fR(r.net)) + '</td></tr>';
+    }).join('') : '<tr><td colspan="11" class="muted">No sales recorded' + (f ? ' in this season' : '') + ' yet.</td></tr>') + '</tbody>' +
+    (list.length ? '<tfoot><tr><td colspan="4">Total (' + list.length + ')</td><td class="n">' + fN(T.head) + '</td><td class="n">' + fN(T.kg) + '</td><td></td><td></td><td class="n">' + fR(T.gross) + '</td><td class="n">' + fR(T.ded) + '</td><td class="n">' + fR(T.net) + '</td></tr></tfoot>' : '') + '</table></div>';
+  m.innerHTML = h;
+  $('#sSeason').onchange = function () { U.saleSeason = this.value; render(); };
+  $('#sAdd').onclick = function () { editSale(null); };
+  $$('tr[data-id]', m).forEach(function (tr) { tr.onclick = function () { editSale(D.sales.filter(function (s) { return s.id === tr.dataset.id; })[0]); }; });
+}
+
+/* ---------- herd: cows + movements ---------- */
+var COW_F = [{ k: 'tag', label: 'Tag / name' }, { k: 'breed', label: 'Breed', hint: 'optional' }, { k: 'birthYear', label: 'Birth year', type: 'number', hint: 'optional' }, { k: 'notes', label: 'Notes', type: 'textarea', wide: true }];
+var MOVE_TYPES = [['purchase', 'Purchase (bought in)'], ['death', 'Death (adult)'], ['in', 'Other in (gift, transfer)'], ['out', 'Other out (slaughter, transfer, theft)']];
+function moveFields() { return [{ k: 'date', label: 'Date', type: 'date', def: today() }, { k: 'type', label: 'Type', type: 'select', opts: MOVE_TYPES }, { k: 'head', label: 'Number of head', type: 'number', def: 1 },
+  { k: 'cls', label: 'Class', type: 'select', opts: D.settings.classes }, { k: 'amount', label: 'Amount R', type: 'number', hint: 'purchase cost, optional' }, { k: 'note', label: 'Notes / cause', type: 'textarea', wide: true }]; }
+function editGeneric(arr, item, fields, title, what, check) {
+  var isNew = !item; item = item || {};
+  var btns = [{ t: 'Cancel', v: null }, { t: 'Save', cls: 'pri', act: function (root) {
+    var o = readForm(root, fields), err = check && check(o);
+    if (err) { setWarn(root, [err]); return false; }
+    if (piiFail(o, fields)) return false;
+    if (isNew) D[arr].push(Object.assign({ id: uid() }, o)); else { Object.assign(item, o); delete item.ex; }
+    save(); render(); toast('Saved');
+  } }];
+  if (!isNew) btns.unshift({ t: 'Delete', cls: 'danger left', act: function (root, close) { confirmDel(what).then(function (ok) { if (!ok) return; D[arr] = D[arr].filter(function (x) { return x !== item; }); save(); render(); close(); }); return false; } });
+  dlg({ title: (isNew ? 'Add ' : 'Edit ') + title, html: formHTML(fields, item) + '<div class="warns"></div>', buttons: btns });
+}
+function cowCheck(o) { return o.tag ? '' : 'Enter a tag or name.'; }
+function moveCheck(o) { return o.date && o.head > 0 ? '' : 'Enter a date and number of head.'; }
+function rHerd(m) {
+  var e = C.herdEstimate(D), o = D.settings.opening || {};
+  var h = '<h2>Herd</h2><div class="card"><b>Herd count estimate</b>' +
+    (e ? '<p style="font-size:22px;margin:6px 0"><b>' + fN(e.total) + '</b> head</p><p class="small muted">' + fN(e.opening) + ' on ' + fD(e.date) + ' + ' + e.bornAlive + ' calves born alive − ' + e.calfDeaths + ' calf deaths + ' + e.purchased + ' bought + ' + e.otherIn + ' other in − ' + e.sold + ' sold − ' + e.deaths + ' adult deaths − ' + e.otherOut + ' other out. Check it against a physical count now and then.</p>'
+      : '<p class="small muted">Enter a head count on a known date (e.g. your last physical count) and the app keeps a running estimate from calves, sales, purchases and deaths.</p>') +
+    '<div class="row"><label class="chk small">Counted <input id="hCnt" type="number" inputmode="numeric" style="width:90px" value="' + esc(o.count === undefined ? '' : o.count) + '"></label><label class="chk small">on <input id="hDate" type="date" style="width:auto" value="' + esc(o.date || '') + '"></label><button id="hSave">Save count</button></div></div>';
+  var cows = D.cows.slice().sort(function (a, b) { return String(a.tag).localeCompare(String(b.tag)); });
+  h += '<div class="row"><h3 class="sp">Cows &amp; heifers (optional)</h3><button id="cwAdd">+ Add cow</button></div><div class="tw"><table><thead><tr><th>Tag / name</th><th>Breed</th><th class="n">Born</th><th class="n">Calves on record</th><th>Notes</th></tr></thead><tbody>' +
+    (cows.length ? cows.map(function (c) { var n = D.calves.filter(function (x) { return x.dam && x.dam === c.tag; }).length; return '<tr class="click" data-cow="' + c.id + '"><td>' + esc(c.tag) + exTag(c) + '</td><td>' + esc(c.breed) + '</td><td class="n">' + esc(c.birthYear) + '</td><td class="n">' + n + '</td><td class="wrap small">' + esc(c.notes) + '</td></tr>'; }).join('') : '<tr><td colspan="5" class="muted">Not needed – add cows only if you want to track dams.</td></tr>') + '</tbody></table></div>';
+  var mv = D.moves.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+  h += '<div class="row"><h3 class="sp">Other movements (purchases, adult deaths…)</h3><button id="mvAdd">+ Add movement</button></div><div class="tw"><table><thead><tr><th>Date</th><th>Type</th><th class="n">Head</th><th>Class</th><th class="n">Amount</th><th>Notes</th></tr></thead><tbody>' +
+    (mv.length ? mv.map(function (x) { var t = MOVE_TYPES.filter(function (y) { return y[0] === x.type; })[0]; return '<tr class="click" data-mv="' + x.id + '"><td>' + fD(x.date) + exTag(x) + '</td><td>' + esc(t ? t[1] : x.type) + '</td><td class="n">' + fN(x.head) + '</td><td>' + esc(x.cls) + '</td><td class="n">' + (x.amount === '' || x.amount === undefined ? '' : fR(x.amount, 0)) + '</td><td class="wrap small">' + esc(x.note) + '</td></tr>'; }).join('') : '<tr><td colspan="6" class="muted">None recorded.</td></tr>') + '</tbody></table></div>';
+  m.innerHTML = h;
+  $('#hSave').onclick = function () {
+    var c = num($('#hCnt').value), d = $('#hDate').value;
+    D.settings.opening = c === null || !d ? null : { count: c, date: d }; save(); render(); toast(D.settings.opening ? 'Count saved' : 'Count cleared');
+  };
+  $('#cwAdd').onclick = function () { editGeneric('cows', null, COW_F, 'cow / heifer', 'this cow record', cowCheck); };
+  $('#mvAdd').onclick = function () { editGeneric('moves', null, moveFields(), 'movement', 'this movement', moveCheck); };
+  $$('tr[data-cow]', m).forEach(function (tr) { tr.onclick = function () { editGeneric('cows', D.cows.filter(function (c) { return c.id === tr.dataset.cow; })[0], COW_F, 'cow / heifer', 'this cow record', cowCheck); }; });
+  $$('tr[data-mv]', m).forEach(function (tr) { tr.onclick = function () { editGeneric('moves', D.moves.filter(function (c) { return c.id === tr.dataset.mv; })[0], moveFields(), 'movement', 'this movement', moveCheck); }; });
+}
+
+/* ---------- setup ---------- */
+var SEASON_F = [{ k: 'name', label: 'Season name', hint: 'e.g. 2026 summer calving' }, { k: 'start', label: 'Starts', type: 'date' }, { k: 'end', label: 'Ends', type: 'date' }, { k: 'cowsBred', label: 'Cows put to the bull', type: 'number', hint: 'optional' }, { k: 'notes', label: 'Notes', type: 'textarea', wide: true }];
+function seasonCheck(o) { if (!o.name || !o.start || !o.end) return 'Enter a name, start and end date.'; if (o.end < o.start) return 'The end date is before the start date.'; return ''; }
+function rSetup(m) {
+  var named = D.settings.seasonMode === 'named';
+  var ss = D.seasons.slice().sort(function (a, b) { return a.start < b.start ? -1 : 1; });
+  var h = '<h2>Setup</h2><div class="card"><b>How to group the figures</b><label class="chk"><input type="radio" name="sm" value="year"' + (named ? '' : ' checked') + '> Calendar years (1 Jan – 31 Dec)</label><label class="chk"><input type="radio" name="sm" value="named"' + (named ? ' checked' : '') + '> Named seasons with my own start and end dates</label></div>';
+  h += '<div class="card"><div class="row"><b class="sp">Named seasons</b><button id="seAdd">+ Add season</button></div><p class="small muted">Example: “2026 summer calving”, 01/10/2026 – 31/03/2027. Used when “Named seasons” is selected above.</p><div class="tw"><table><thead><tr><th>Name</th><th>Starts</th><th>Ends</th><th class="n">Cows bred</th></tr></thead><tbody>' +
+    (ss.length ? ss.map(function (s) { return '<tr class="click" data-se="' + s.id + '"><td>' + esc(s.name) + exTag(s) + '</td><td>' + fD(s.start) + '</td><td>' + fD(s.end) + '</td><td class="n">' + fN(s.cowsBred) + '</td></tr>'; }).join('') : '<tr><td colspan="4" class="muted">None yet.</td></tr>') + '</tbody></table></div></div>';
+  h += '<div class="card"><b>Cattle classes</b> <span class="small muted">(one per line – used for sales and movements)</span><textarea id="clsT" rows="6">' + esc(D.settings.classes.join('\n')) + '</textarea><div class="row" style="margin-top:6px"><button id="clsSave">Save classes</button></div></div>';
+  m.innerHTML = h;
+  $$('input[name=sm]', m).forEach(function (r) { r.onchange = function () { D.settings.seasonMode = this.value; U.season = ''; save(); render(); }; });
+  $('#seAdd').onclick = function () { editGeneric('seasons', null, SEASON_F, 'season', 'this season (records stay, only the grouping goes)', seasonCheck); };
+  $$('tr[data-se]', m).forEach(function (tr) { tr.onclick = function () { editGeneric('seasons', D.seasons.filter(function (s) { return s.id === tr.dataset.se; })[0], SEASON_F, 'season', 'this season (records stay, only the grouping goes)', seasonCheck); }; });
+  $('#clsSave').onclick = function () {
+    var l = $('#clsT').value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
+    if (!l.length) { info('Classes', '<p>Keep at least one class.</p>'); return; }
+    D.settings.classes = l.filter(function (x, i) { return l.indexOf(x) === i; }); save(); toast('Classes saved');
+  };
+}
+
+/* ---------- data: backup, import, CSV, clear ---------- */
+function download(name, text, type) {
+  var b = new Blob([text], { type: type }), a = document.createElement('a');
+  a.href = URL.createObjectURL(b); a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+function exportJSON() {
+  var now = new Date().toISOString();
+  D.settings.lastBackup = now;
+  var out = { app: 'donegal-farm', v: 1, exported: now, data: D };
+  download('donegal-farm-backup-' + today() + '.json', JSON.stringify(out, null, 1), 'application/json');
+  try { localStorage.setItem(KD, JSON.stringify(D)); } catch (e) {}
+  render(); toast('Backup downloaded');
+}
+function parseBackup(text) {
+  var j = JSON.parse(text), d = j && j.data ? j.data : j;
+  if (!d || typeof d !== 'object' || !['calves', 'sales', 'batches', 'cows', 'moves', 'seasons'].some(function (k) { return Array.isArray(d[k]); })) throw new Error('This file is not a Donegal Farm backup.');
+  return normalize(d);
+}
+function counts(d) { return d.calves.length + ' calves, ' + d.batches.length + ' batch weanings, ' + d.sales.length + ' sales, ' + d.cows.length + ' cows, ' + d.moves.length + ' movements, ' + d.seasons.length + ' seasons'; }
+function importText(text) {
+  var nd;
+  try { nd = parseBackup(text); } catch (e) { info('Import failed', '<p>' + esc(e.message) + '</p><p class="small muted">Nothing was changed.</p>'); return; }
+  dlg({ title: 'Import backup', html: '<p>The file contains: <b>' + counts(nd) + '</b>.</p><p>On this device now: ' + counts(D) + '.</p><p><b>Merge</b> adds records that are not here yet. <b>Replace all</b> wipes this device’s data and loads the file.</p><p class="muted small">' + backupLine() + '</p>',
+    buttons: [{ t: 'Cancel', v: null }, { t: 'Merge', v: 'merge' }, { t: 'Replace all', v: 'replace', cls: 'danger' }] }).then(function (how) {
+    if (how === 'merge') {
+      var added = 0;
+      ['seasons', 'cows', 'calves', 'batches', 'sales', 'moves'].forEach(function (k) { var have = {}; D[k].forEach(function (x) { have[x.id] = 1; }); nd[k].forEach(function (x) { if (!have[x.id]) { D[k].push(x); added++; } }); });
+      nd.settings.classes.forEach(function (c) { if (D.settings.classes.indexOf(c) < 0) D.settings.classes.push(c); });
+      save(); render(); info('Merged', '<p>' + added + ' record(s) added.</p>');
+    } else if (how === 'replace') {
+      dlg({ title: 'Replace all data?', html: '<p>Everything on this device will be replaced by the file. Export a backup first if you might need the current data.</p><p class="muted small">' + backupLine() + '</p>',
+        buttons: [{ t: 'Cancel', v: false }, { t: 'Export backup first', v: false, act: function () { exportJSON(); return false; } }, { t: 'Replace', v: true, cls: 'danger' }] }).then(function (ok) {
+        if (!ok) return; var lb = D.settings.lastBackup; D = nd; if (!D.settings.lastBackup) D.settings.lastBackup = lb; save(); U.season = ''; render(); toast('Backup loaded');
+      });
+    }
+  });
+}
+function importFile(file) {
+  var r = new FileReader();
+  r.onload = function () { importText(String(r.result)); };
+  r.onerror = function () { info('Import failed', '<p>Could not read the file.</p>'); };
+  r.readAsText(file);
+}
+function csvFor(kind) {
+  var calfTag = {}; D.calves.forEach(function (c) { calfTag[c.id] = c.tag || '(untagged)'; });
+  function ex(x) { return x.ex ? 'yes' : ''; }
+  if (kind === 'calves') return [['Born', 'Tag', 'Sex', 'Dam', 'Birth kg', 'Status', 'Weaned', 'Wean kg', 'Sold', 'Notes', 'Example']].concat(D.calves.map(function (c) { var s = saleOfCalf(c.id); return [fD(c.born), c.tag, c.sex, c.dam, c.bw, c.status, fD(c.wDate), c.wWt, s ? fD(s.date) : '', c.note, ex(c)]; }));
+  if (kind === 'batches') return [['Weaning date', 'Count', 'Avg kg', 'Born around', 'Notes', 'Example']].concat(D.batches.map(function (b) { return [fD(b.date), b.count, b.avgWt, fD(b.bornApprox), b.note, ex(b)]; }));
+  if (kind === 'sales') return [['Date', 'Auction/venue', 'Buyer', 'Class', 'Head', 'kg', 'R/kg', 'R/head', 'Gross R', 'Commission %', 'Commission R', 'Levies R', 'Transport R', 'Other R', 'Deductions R', 'Net R', 'Linked calves', 'Notes', 'Example']].concat(D.sales.map(function (s) {
+    var r = C.calcSale(s); function f2(v) { return v === null ? '' : v.toFixed(2); }
+    return [fD(s.date), s.venue, s.buyer, s.cls, r.head, r.kg, f2(r.pkg), f2(r.phead), f2(r.gross), s.commPct, f2(r.comm), s.levies, s.transport, s.other, f2(r.ded), f2(r.net), s.calfIds.map(function (id) { return calfTag[id]; }).join(' '), s.note, ex(s)]; }));
+  if (kind === 'moves') return [['Date', 'Type', 'Head', 'Class', 'Amount R', 'Notes', 'Example']].concat(D.moves.map(function (x) { return [fD(x.date), x.type, x.head, x.cls, x.amount, x.note, ex(x)]; }));
+  if (kind === 'cows') return [['Tag', 'Breed', 'Birth year', 'Notes', 'Example']].concat(D.cows.map(function (x) { return [x.tag, x.breed, x.birthYear, x.notes, ex(x)]; }));
+  var list = seasons();
+  return [['Season', 'Start', 'End', 'Calves born', 'Bulls', 'Heifers', 'Died', 'Stillborn', 'Weaned', 'Weaning rate %', 'Avg weaning kg', 'Head sold', 'kg sold', 'Avg R/kg', 'Avg R/head', 'Gross R', 'Deductions R', 'Net R', 'Bought in', 'Adult deaths']].concat(list.map(function (se) {
+    var s = C.seasonStats(D, se); function f(v, dp) { return v === null ? '' : v.toFixed(dp); }
+    return [se.name, fD(se.start), fD(se.end), s.born, s.bulls, s.heifers, s.died, s.stillborn, s.weaned, s.weanRate === null ? '' : (s.weanRate * 100).toFixed(1), f(s.avgWean, 1), s.headSold, s.kgSold, f(s.rkg, 2), f(s.rhead, 2), s.gross.toFixed(2), s.ded.toFixed(2), s.net.toFixed(2), s.moves.purchHead, s.moves.deaths];
+  }));
+}
+function clearAll() {
+  dlg({ title: 'Clear all farm data?', html: '<p>This deletes <b>every</b> calf, weaning, sale, cow, movement and season stored by this app on this device (' + counts(D) + ').</p><p><b>Back up first!</b> ' + backupLine() + '</p>',
+    buttons: [{ t: 'Cancel', v: null }, { t: 'Export backup first', v: null, act: function () { exportJSON(); return false; } }, { t: 'Continue', v: 'go', cls: 'danger' }] }).then(function (go) {
+    if (go !== 'go') return;
+    dlg({ title: 'Type CLEAR to confirm', html: '<p>Type <b>CLEAR</b> to delete all Donegal Farm data on this device. This cannot be undone.</p><input id="clrT" autocomplete="off" autocapitalize="characters"><div class="warns"></div>',
+      buttons: [{ t: 'Cancel', v: null }, { t: 'Delete everything', cls: 'danger', act: function (root) {
+        if ($('#clrT', root).value.trim().toUpperCase() !== 'CLEAR') { setWarn(root, ['Type CLEAR exactly.']); return false; }
+        var keys = []; for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k && k.indexOf(PFX) === 0) keys.push(k); }
+        keys.forEach(function (k) { localStorage.removeItem(k); });
+        D = empty(); U = { tab: 'data' }; save(); render(); toast('All farm data cleared');
+      } }] });
+  });
+}
+function rData(m) {
+  var h = '<h2>Data &amp; backup</h2><div class="card"><b>Backup</b><p class="small">' + backupLine() + ' Your data is stored only in this browser on this device. Export a backup regularly and keep it somewhere safe (e.g. Google Drive).</p><div class="row"><button id="xJson" class="pri">Export backup (JSON)</button><label class="btn">Import backup…<input id="iJson" type="file" accept=".json,application/json" style="display:none"></label></div></div>';
+  h += '<div class="card"><b>Export to spreadsheet (CSV)</b><div class="row" style="margin-top:6px"><select id="csvK" style="width:auto"><option value="summary">Season summary</option><option value="calves">Calves</option><option value="batches">Batch weanings</option><option value="sales">Sales</option><option value="moves">Movements</option><option value="cows">Cows</option></select><button id="xCsv">Download CSV</button></div></div>';
+  if (hasExample()) h += '<div class="card"><b>Example data</b><p class="small">Made-up records marked EXAMPLE.</p><button id="dRemEx">Remove example data</button></div>';
+  h += '<div class="card"><b>Privacy</b><p class="small">No ID numbers or cell numbers are stored – the app refuses text that looks like one. Buyer is a name only and optional.</p></div>';
+  h += '<div class="card"><b>Danger zone</b><p class="small">Removes all Donegal Farm data from this device (other apps are not touched).</p><button id="dClr" class="danger">Clear all data…</button></div>';
+  h += '<p class="small muted">Donegal Farm – Herd Tracker v1.0 · works offline · storage keys donegalFarm.v1.*</p>';
+  m.innerHTML = h;
+  $('#xJson').onclick = exportJSON;
+  $('#iJson').onchange = function () { if (this.files[0]) importFile(this.files[0]); this.value = ''; };
+  $('#xCsv').onclick = function () { var k = $('#csvK').value; download('donegal-farm-' + k + '-' + today() + '.csv', C.csv(csvFor(k)), 'text/csv'); toast('CSV downloaded'); };
+  if ($('#dRemEx')) $('#dRemEx').onclick = removeExample;
+  $('#dClr').onclick = clearAll;
+}
+
+/* ---------- print report (A4) ---------- */
+function reportHTML(se) {
+  var s = C.seasonStats(D, se);
+  function inR(d) { return !!d && d >= se.start && d <= se.end; }
+  var calves = D.calves.filter(function (c) { return inR(c.born); }).sort(function (a, b) { return a.born < b.born ? -1 : 1; });
+  var bat = D.batches.filter(function (b) { return inR(b.bornApprox || b.date); });
+  var sales = D.sales.filter(function (x) { return inR(x.date); }).sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+  var mv = D.moves.filter(function (x) { return inR(x.date); });
+  var anyEx = calves.concat(bat, sales, mv).some(function (x) { return x.ex; });
+  function kv(rows) { return '<table>' + rows.map(function (r) { return '<tr><th style="width:55%">' + r[0] + '</th><td style="text-align:right">' + r[1] + '</td></tr>'; }).join('') + '</table>'; }
+  var h = '<div class="rep"><h1>Donegal Farm – Herd report</h1><div><b>' + esc(se.name) + '</b> · ' + fD(se.start) + ' – ' + fD(se.end) + ' · printed ' + fD(today()) + '</div>' +
+    (anyEx ? '<p><b>Note:</b> this report includes EXAMPLE (made-up) records.</p>' : '') +
+    '<h2>Summary</h2><div class="sum">' + kv([['Calves born', fN(s.born)], ['Bull / heifer calves', s.bulls + ' / ' + s.heifers], ['Died / stillborn', s.died + ' / ' + s.stillborn], ['Weaned', fN(s.weaned)], ['Weaning rate', fP(s.weanRate)], ['Avg weaning weight', s.avgWean === null ? '–' : fN(s.avgWean, 1) + ' kg']].concat(s.cowsBred ? [['Cows bred', fN(s.cowsBred)], ['Calving rate', fP(s.calvingRate)]] : [])) +
+    kv([['Head sold', fN(s.headSold)], ['Total kg sold', s.kgSold ? fN(s.kgSold) : '–'], ['Average R/kg', fR(s.rkg)], ['Average R/head', fR(s.rhead, 0)], ['Gross income', fR(s.gross)], ['Deductions', fR(s.ded)], ['Net income', fR(s.net)], ['Bought in / adult deaths', s.moves.purchHead + ' / ' + s.moves.deaths]]) + '</div>';
+  h += '<h2>Calves (' + calves.length + ')</h2>' + (calves.length ? '<table><thead><tr><th>Born</th><th>Tag</th><th>Sex</th><th>Dam</th><th>Birth kg</th><th>Status</th><th>Weaned</th><th>Wean kg</th><th>Notes</th></tr></thead><tbody>' +
+    calves.map(function (c) { return '<tr><td>' + fD(c.born) + '</td><td>' + esc(c.tag) + (c.ex ? ' (ex.)' : '') + '</td><td>' + esc(c.sex) + '</td><td>' + esc(c.dam) + '</td><td>' + fN(c.bw, 1) + '</td><td>' + esc(c.status) + '</td><td>' + fD(c.wDate) + '</td><td>' + fN(c.wWt, 1) + '</td><td>' + esc(c.note) + '</td></tr>'; }).join('') + '</tbody></table>' : '<p>None.</p>');
+  if (bat.length) h += '<h2>Batch weaning</h2><table><thead><tr><th>Date</th><th>Count</th><th>Avg kg</th><th>Born around</th><th>Notes</th></tr></thead><tbody>' + bat.map(function (b) { return '<tr><td>' + fD(b.date) + '</td><td>' + fN(b.count) + '</td><td>' + fN(b.avgWt, 1) + '</td><td>' + fD(b.bornApprox) + '</td><td>' + esc(b.note) + '</td></tr>'; }).join('') + '</tbody></table>';
+  h += '<h2>Auction sales (' + sales.length + ')</h2>' + (sales.length ? '<table><thead><tr><th>Date</th><th>Auction</th><th>Class</th><th>Head</th><th>kg</th><th>R/kg</th><th>R/head</th><th>Gross</th><th>Deductions</th><th>Net</th></tr></thead><tbody>' +
+    sales.map(function (x) { var r = C.calcSale(x); return '<tr><td>' + fD(x.date) + '</td><td>' + esc(x.venue) + (x.ex ? ' (ex.)' : '') + '</td><td>' + esc(x.cls) + '</td><td>' + fN(r.head) + '</td><td>' + fN(r.kg) + '</td><td>' + fR(r.pkg) + '</td><td>' + fR(r.phead, 0) + '</td><td>' + fR(r.gross) + '</td><td>' + fR(r.ded) + '</td><td>' + fR(r.net) + '</td></tr>'; }).join('') +
+    '<tr><th colspan="3">Total</th><th>' + fN(s.headSold) + '</th><th>' + fN(s.kgSold) + '</th><th></th><th></th><th>' + fR(s.gross) + '</th><th>' + fR(s.ded) + '</th><th>' + fR(s.net) + '</th></tr></tbody></table>' : '<p>None.</p>');
+  if (mv.length) h += '<h2>Other movements</h2><table><thead><tr><th>Date</th><th>Type</th><th>Head</th><th>Class</th><th>Amount</th><th>Notes</th></tr></thead><tbody>' + mv.map(function (x) { return '<tr><td>' + fD(x.date) + '</td><td>' + esc(x.type) + '</td><td>' + fN(x.head) + '</td><td>' + esc(x.cls) + '</td><td>' + (x.amount === '' || x.amount === undefined ? '' : fR(x.amount, 0)) + '</td><td>' + esc(x.note) + '</td></tr>'; }).join('') + '</tbody></table>';
+  var list = seasons();
+  if (list.length > 1) h += '<h2>Year-on-year</h2>' + yoyTable(list) + chartsHTML(list);
+  h += '<div class="foot">Weaning rate = calves weaned ÷ calves born in the season (incl. stillborn). Average R/kg = gross ÷ kg on sales with a weight. Net = gross − commission − levies − transport − other deductions.</div></div>';
+  return h;
+}
+function printReport(se) {
+  var p = $('#print');
+  p.innerHTML = '<div class="pbar"><button id="pGo" class="pri">Print / Save as PDF</button><button id="pClose">Close</button></div><div class="page">' + reportHTML(se) + '</div>';
+  p.className = 'on'; p.setAttribute('aria-hidden', 'false');
+  $('#pGo').onclick = function () { window.print(); };
+  $('#pClose').onclick = function () { p.className = ''; p.innerHTML = ''; p.setAttribute('aria-hidden', 'true'); };
+}
+
+/* ---------- start ---------- */
+$$('#tabs button').forEach(function (b) { b.onclick = function () { U.tab = b.dataset.t; render(); window.scrollTo(0, 0); }; });
+load(); render();
+
+</script>
+</body>
+</html>
