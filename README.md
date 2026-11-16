@@ -20,7 +20,14 @@ Forgot your password? On the sign-in screen tap **Forgot password?** and a reset
 - **Calves**: date born, tag (optional), sex, dam, birth weight, alive/died/stillborn and notes.
 - **Weaning**: tick off tagged calves with their weights, or do a **Batch weaning** for untagged calves.
 - **Sales**: fill in what's on the auction slip. Gross, commission, net, R/kg and R/head are worked out for you.
-- **Herd**: cows (optional), purchases, adult deaths and a running head count.
+- **Herd**: the animal register (visual tag, RFID chip number, sex, role, group / tag colour, status, birth year,
+  first seen, notes) with search (tag, group, notes or the last digits of the RFID) and a status filter; purchases,
+  adult deaths and a running head count. **Import RFID scan CSV…** reads the scanner's CSV export and shows a preview
+  (new / already in the app / skipped, by group and birth year) before anything is saved. It matches on the RFID first,
+  then the visual tag, so importing the same file again adds nothing, and it never overwrites what you typed – it only
+  fills blank fields. The **Grazing load** card adds up everything that grazes (own herd, legacy animals being phased
+  out, and workers) against the farm's capacity (425 LSU by default, 1 head = 1 LSU). Legacy and worker animals are
+  left out of the own-herd and group figures.
 - **Dashboard**: figures per season, year-on-year comparison and charts. **Print / PDF report** gives an A4 report.
 - **Market**: weekly weaner calf prices – RPO (bull calves, national) and AMT (weaners 200–250 kg, weight classes and
   regions) – with a trend chart, your own weaner sales compared with the benchmark for that week, and a calculator for
@@ -40,6 +47,6 @@ Forgot your password? On the sign-in screen tap **Forgot password?** and a reset
 - Never enter ID numbers or cell numbers; the app refuses them. Buyer is a name only.
 
 ## Files
-- `index.html` – the app (version shown in Setup, currently v2.1)
+- `index.html` – the app (version shown in Setup, currently v2.2)
 - `sw.js` – lets the app open without signal (the price feed is never served from its cache)
 - `firestore.rules` – database security rules (published in the Firebase console, see ADMIN-SETUP.md)

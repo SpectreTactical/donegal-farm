@@ -45,6 +45,7 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 tr.click{cursor:pointer}tr.click:hover{background:#f3f7f2}
 tfoot td{font-weight:600;background:#fafbf9}
 td.wrap{white-space:normal;min-width:140px}
+.kvt td{white-space:normal}.kvt td.n{white-space:nowrap}
 .tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:9px;background:#e8eefb;color:#2c4a8a;margin-left:4px;font-weight:600;letter-spacing:.3px}
 .tag.d{background:#fde4e1;color:var(--red)}.tag.s{background:#e3f1e5;color:var(--g)}
 .muted{color:var(--mut)}.small{font-size:13px}
@@ -470,6 +471,158 @@ var DF_PRICES_URL = window.DF_TEST_PRICES_URL || 'https://spectretactical.github
 
 </script>
 <script>
+/* Donegal Farm – animal register + RFID scan CSV import (pure helpers; also loaded by node tests).
+   An RFID EID is a 15-digit ISO 11784 animal chip number – it is NOT a personal number. ID and cell numbers are
+   still refused in every other field (tag, notes, group). */
+(function (root) {
+  'use strict';
+  var STATUS = [['active', 'Active (tracked)'], ['legacy', 'Legacy – phase out'], ['worker', 'Worker (not own herd)'], ['check', 'To check'], ['sold', 'Sold'], ['died', 'Died']];
+  var SEX = [['', 'Unknown'], ['female', 'Female'], ['male', 'Male']];
+  var ROLE = [['', '—'], ['breeding female', 'Breeding female'], ['breeding bull', 'Breeding bull']];
+  var GROUPS = ['Green 1', 'Green 2', 'Green (1 or 2)', 'Pink', 'Yellow', 'Orange', 'Bulls'];
+  /* Gideon's tracked breeding bulls (VIDs as written in the farm handoff, 2026-11). */
+  var TRACKED_BULLS = ['190416', '200001', '200105', '200095', '230071', '230125'];
+
+  function looksLikePII(s) {
+    s = String(s || '');
+    if (/(^|\D)\d{13}(\D|$)/.test(s.replace(/[\s-]/g, ''))) return true;
+    if (/(\+27|\b0)[\s-]?[1-8]\d[\s-]?\d{3}[\s-]?\d{4}\b/.test(s)) return true;
+    if (/\b\d{10,}\b/.test(s.replace(/[\s-]/g, ''))) return true;
+    return false;
+  }
+  function normEID(s) { return String(s || '').replace(/[\s-]/g, ''); }
+  function validEID(s) { return /^\d{15}$/.test(normEID(s)); }
+  function normTag(s) { return String(s || '').trim().toUpperCase(); }
+
+  /* RFC-4180-ish CSV parser: quotes, "" escapes, CRLF, BOM, commas or semicolons. */
+  function parseCSV(text) {
+    text = String(text || '').replace(/^\ufeff/, '');
+    var first = text.split(/\r?\n/)[0] || '', sep = (first.split(';').length > first.split(',').length) ? ';' : ',';
+    var rows = [], row = [], f = '', q = false;
+    for (var i = 0; i < text.length; i++) {
+      var c = text[i];
+      if (q) { if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+      else if (c === '"') q = true;
+      else if (c === sep) { row.push(f); f = ''; }
+      else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(f); rows.push(row); row = []; f = ''; }
+      else f += c;
+    }
+    if (f !== '' || row.length) { row.push(f); rows.push(row); }
+    rows = rows.filter(function (r) { return r.some(function (x) { return String(x).trim() !== ''; }); });
+    if (!rows.length) return { header: [], rows: [] };
+    var header = rows[0].map(function (h) { return String(h).trim(); });
+    return { header: header, rows: rows.slice(1).map(function (r, n) { var o = { _line: n + 2 }; header.forEach(function (h, k) { o[h] = String(r[k] === undefined ? '' : r[k]).trim(); }); return o; }) };
+  }
+  function col(o, names) { for (var i = 0; i < names.length; i++) { for (var k in o) if (k.toLowerCase() === names[i]) return o[k]; } return ''; }
+
+  /* scanner dates: M/D/YYYY (this export), or YYYY-MM-DD; anything else -> '' */
+  function isoDate(s) {
+    s = String(s || '').trim(); var m;
+    if ((m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s))) return m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
+    if ((m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s))) { var mo = +m[1], d = +m[2]; if (mo > 12 && d <= 12) { var t = mo; mo = d; d = t; } if (mo < 1 || mo > 12 || d < 1 || d > 31) return ''; return m[3] + '-' + ('0' + mo).slice(-2) + '-' + ('0' + d).slice(-2); }
+    return '';
+  }
+
+  /* What the VID pattern tells us, per Gideon's handoff. Only patterns that match a verified group are assigned;
+     everything else is left for a person to check. legacySuggest = old-herd tag pattern (18-xx, letter tags). */
+  function classify(vid) {
+    var v = normTag(vid), m, r = { group: '', sex: '', role: '', birthYear: '', known: false, legacySuggest: false, bullCode: '' };
+    if ((m = /^BUL\s*(\d{2})-0*(\d{1,4})$/.exec(v))) {
+      r.sex = 'male'; r.role = 'breeding bull'; r.group = 'Bulls'; r.birthYear = 2000 + +m[1];
+      r.bullCode = m[1] + ('0000' + m[2]).slice(-4); r.known = TRACKED_BULLS.indexOf(r.bullCode) >= 0; return r;
+    }
+    /* numeric VID: the first two digits are the birth year (22-36 = born 2022). Year only, never a date of birth. */
+    if ((m = /^(\d{2})-([A-Z]?)0*(\d{1,4})$/.exec(v))) {
+      var y = +m[1], n = +m[3], plain = !m[2];
+      r.birthYear = 2000 + y;
+      if (plain && y === 23) r.group = 'Pink';
+      else if (plain && y === 24) r.group = 'Yellow';
+      else if (plain && y === 25 && n >= 1 && n <= 70) r.group = 'Orange';
+      else if (plain && y === 22 && n >= 1 && n <= 100) r.group = 'Green (1 or 2)';
+      else if (y === 18) r.legacySuggest = true;
+      if (r.group) { r.sex = 'female'; r.role = 'breeding female'; r.known = true; }
+      return r;
+    }
+    /* worker tags: a letter prefix (A-, D-, E-, G-, J-) – no year in the tag */
+    if (/^[A-Z]-0*\d{1,3}$/.test(v)) r.worker = true;
+    return r;
+  }
+  function mapStatus(s, cl, legacyOn) {
+    s = String(s || '').trim().toLowerCase();
+    if (/sold|verkoop/.test(s)) return 'sold';
+    if (/dead|died|dood|deceased/.test(s)) return 'died';
+    if (s !== 'current' && s !== 'active' && s !== '') return 'check';
+    if (s === '') return 'check';
+    if (cl.known) return 'active';
+    if (cl.worker) return 'worker';
+    if (legacyOn && cl.legacySuggest) return 'legacy';
+    return 'check';
+  }
+
+  /* Build the import plan. existing = current animal records. opts.legacy = mark suggested legacy tags as legacy.
+     Matching: EID first, then visual tag (only if that record has no EID yet). Never overwrites what a person
+     entered: only blank fields are filled, firstSeen keeps the earliest date. */
+  function planImport(parsed, existing, opts) {
+    opts = opts || {}; existing = (existing || []).filter(function (x) { return !x.ex; });
+    var byE = {}, byT = {};
+    existing.forEach(function (a) { if (a.rfid) byE[normEID(a.rfid)] = a; if (a.tag) (byT[normTag(a.tag)] = byT[normTag(a.tag)] || []).push(a); });
+    var P = { years: {}, add: [], update: [], same: [], skip: [], seen: {}, groups: {}, bulls: [], noVid: [], retag: [] };
+    var hasEID = parsed.header.some(function (h) { return /^eid$/i.test(h) || /rfid/i.test(h); });
+    if (!hasEID) { P.error = 'This file has no EID / RFID column – is it the scanner export?'; return P; }
+    parsed.rows.forEach(function (row) {
+      var eid = normEID(col(row, ['eid', 'rfid', 'rfid / eid'])), vid = String(col(row, ['vid', 'tag', 'visual id'])).trim();
+      var note = String(col(row, ['notes', 'note'])).trim(), date = isoDate(col(row, ['date'])), fs = isoDate(col(row, ['first seen date']));
+      var line = row._line;
+      if (!eid) { P.skip.push({ line: line, vid: vid, why: 'no EID' }); return; }
+      if (!validEID(eid)) { P.skip.push({ line: line, vid: vid, eid: eid, why: 'EID is not 15 digits' }); return; }
+      if (P.seen[eid]) { P.skip.push({ line: line, vid: vid, eid: eid, why: 'same EID twice in file (line ' + P.seen[eid] + ')' }); return; }
+      if (looksLikePII(vid) || looksLikePII(note) || looksLikePII(col(row, ['breed'])) || looksLikePII(col(row, ['group']))) { P.skip.push({ line: line, vid: vid, eid: eid, why: 'looks like an ID or cell number – never stored' }); return; }
+      P.seen[eid] = line;
+      var cl = classify(vid), seen = [date, fs].filter(Boolean).sort()[0] || '';
+      var sexIn = String(col(row, ['sex'])).trim().toLowerCase(), sex = /^(m|male|bull|steer|ox)/.test(sexIn) ? 'male' : /^(f|female|cow|heifer)/.test(sexIn) ? 'female' : cl.sex;
+      var dob = isoDate(col(row, ['date of birth']));
+      var rec = { rfid: eid, tag: vid, sex: sex, role: cl.role, group: cl.group || String(col(row, ['group'])).trim(), status: mapStatus(col(row, ['status']), cl, opts.legacy),
+        birthYear: dob ? +dob.slice(0, 4) : cl.birthYear, breed: String(col(row, ['breed'])).trim(), firstSeen: seen, notes: note, src: 'RFID scan CSV' };
+      if (!vid) P.noVid.push({ line: line, eid: eid, date: seen, note: note });
+      if (cl.role === 'breeding bull') P.bulls.push({ vid: vid, code: cl.bullCode, tracked: cl.known });
+      if (/^new tag:/i.test(note)) P.retag.push({ vid: vid, eid: eid, date: seen });
+      var g = rec.status === 'legacy' ? 'Legacy (suggested)' : rec.status === 'worker' ? 'Workers' : rec.group || 'Not assigned – to check'; P.groups[g] = (P.groups[g] || 0) + 1; var by = rec.birthYear || 'unknown'; P.years[by] = (P.years[by] || 0) + 1;
+      var have = byE[eid], how = 'EID';
+      if (!have && vid && byT[normTag(vid)]) {
+        var cand = byT[normTag(vid)].filter(function (a) { return !a.rfid; });
+        if (cand.length === 1) { have = cand[0]; how = 'tag'; }
+        else if (byT[normTag(vid)].length) { P.skip.push({ line: line, vid: vid, eid: eid, why: cand.length > 1 ? 'tag ' + vid + ' is on ' + cand.length + ' records – fix duplicates first' : 'tag ' + vid + ' already belongs to another chip (' + byT[normTag(vid)][0].rfid + ')' }); return; }
+      }
+      if (!have) { P.add.push(Object.assign({ id: 'eid-' + eid }, clean(rec))); return; }
+      var upd = Object.assign({}, have), ch = [];
+      Object.keys(rec).forEach(function (k) {
+        var v = rec[k]; if (v === '' || v === undefined || v === null) return;
+        var cur = have[k];
+        if (k === 'firstSeen') { if (!cur || v < cur) { upd[k] = v; ch.push(k); } return; }
+        if (k === 'status') { if (!cur) { upd[k] = v; ch.push(k); } return; }
+        if (k === 'notes') { if (String(cur || '').indexOf(v) < 0) { upd.notes = cur ? cur + '\n' + v : v; ch.push(k); } return; }
+        if (k === 'src') return;
+        if (cur === '' || cur === undefined || cur === null) { upd[k] = v; ch.push(k); }
+      });
+      if (how === 'EID' && vid && have.tag && normTag(have.tag) !== normTag(vid)) ch.push('tag differs: kept ' + have.tag + ', file has ' + vid);
+      if (ch.filter(function (c) { return c.indexOf('tag differs') < 0; }).length) P.update.push({ rec: upd, how: how, changes: ch }); else P.same.push({ rec: have, how: how, changes: ch });
+    });
+    P.counts = { rows: parsed.rows.length, add: P.add.length, update: P.update.length, same: P.same.length, skip: P.skip.length };
+    return P;
+  }
+  function clean(r) { var o = {}; Object.keys(r).forEach(function (k) { if (r[k] !== '' && r[k] !== undefined && r[k] !== null) o[k] = r[k]; }); return o; }
+  function matches(a, q) {
+    q = String(q || '').trim().toLowerCase(); if (!q) return true;
+    var hay = [a.tag, a.rfid, a.group, a.notes, a.breed, a.sex, a.role, a.status, a.birthYear].join(' ').toLowerCase();
+    return q.split(/\s+/).every(function (w) { return hay.indexOf(w) >= 0 || (w.length >= 4 && /^\d+$/.test(w) && String(a.rfid || '').slice(-w.length) === w); });
+  }
+  var Herd = { STATUS: STATUS, SEX: SEX, ROLE: ROLE, GROUPS: GROUPS, TRACKED_BULLS: TRACKED_BULLS, parseCSV: parseCSV, isoDate: isoDate,
+    classify: classify, mapStatus: mapStatus, planImport: planImport, normEID: normEID, validEID: validEID, normTag: normTag, matches: matches };
+  if (typeof module !== 'undefined' && module.exports) module.exports = Herd; else root.Herd = Herd;
+})(this);
+
+</script>
+<script>
 /* Donegal Farm – Firebase backend (Auth email/password + Firestore with offline persistence).
    SDK: modular ESM from gstatic, loaded on demand (same approach as Spectre Scoring). */
 var DF_FIREBASE_SDK = 'https://www.gstatic.com/firebasejs/10.14.1/';
@@ -549,9 +702,9 @@ function dfFirebaseBackend(cfg) {
 /* Donegal Farm – Herd Tracker v2 (shared Firebase farm database; approved family members only).
    Local storage: only keys starting "donegalFarm.v1." (UI state; the old v1 data key is read for migration only). */
 'use strict';
-var APP_VERSION = 'v2.1';
+var APP_VERSION = 'v2.2';
 var PFX = 'donegalFarm.v1.', KD = PFX + 'data', KU = PFX + 'ui';
-var C = window.Calc, num = C.num, fR = C.fmtR, fN = C.fmtN, fP = C.fmtPct, fD = C.fmtD;
+var H = window.Herd, C = window.Calc, num = C.num, fR = C.fmtR, fN = C.fmtN, fP = C.fmtPct, fD = C.fmtD;
 var D, U = {};
 var DEFAULT_CLASSES = ['Weaner calf', 'Heifer', 'Cow', 'Bull', 'Ox', 'Other'];
 function $(s, r) { return (r || document).querySelector(s); }
@@ -717,7 +870,7 @@ function fieldHTML(f, o) {
   var lab = '<span>' + esc(f.label) + (f.hint ? ' <i class="muted">' + esc(f.hint) + '</i>' : '') + '</span>';
   if (f.type === 'select') return '<label class="f' + cls + '">' + lab + '<select data-k="' + f.k + '">' + f.opts.map(function (op) { var val = Array.isArray(op) ? op[0] : op, l = Array.isArray(op) ? op[1] : op; return '<option value="' + esc(val) + '"' + (String(v) === String(val) ? ' selected' : '') + '>' + esc(l) + '</option>'; }).join('') + '</select></label>';
   if (f.type === 'textarea') return '<label class="f' + cls + '">' + lab + '<textarea data-k="' + f.k + '" maxlength="2000">' + esc(v) + '</textarea></label>';
-  return '<label class="f' + cls + '">' + lab + '<input data-k="' + f.k + '" type="' + (f.type || 'text') + '"' + (f.type === 'number' ? ' inputmode="decimal" step="any"' : '') + (f.list ? ' list="' + f.list + '"' : '') + ' value="' + esc(v) + '" maxlength="200"></label>';
+  return '<label class="f' + cls + '">' + lab + '<input data-k="' + f.k + '" type="' + (f.type || 'text') + '"' + (f.type === 'number' ? ' inputmode="decimal" step="any"' : '') + (f.rfid ? ' inputmode="numeric" pattern="[0-9 ]*"' : '') + (f.list ? ' list="' + f.list + '"' : '') + ' value="' + esc(v) + '" maxlength="200"></label>';
 }
 function formHTML(fields, o) { return '<div class="grid">' + fields.map(function (f) { return fieldHTML(f, o); }).join('') + '</div>'; }
 function readForm(root, fields) {
@@ -730,7 +883,7 @@ function readForm(root, fields) {
   return o;
 }
 function piiFail(o, fields) {
-  var bad = fields.filter(function (f) { return f.type !== 'number' && f.type !== 'date' && f.type !== 'select' && C.looksLikePII(o[f.k]); });
+  var bad = fields.filter(function (f) { return !f.rfid && f.type !== 'number' && f.type !== 'date' && f.type !== 'select' && C.looksLikePII(o[f.k]); });
   if (!bad.length) return false;
   info('Personal numbers not allowed', '<p>“' + esc(bad.map(function (f) { return f.label; }).join('”, “')) + '” looks like it contains an ID or cell number. This app never stores ID or cell numbers – please remove it and save again.</p>');
   return true;
@@ -1041,7 +1194,7 @@ function editCalf(c) {
   if (exReadOnly(c)) return;
   var isNew = !c, fields = calfFields(isNew); c = c || { status: 'alive', sex: 'bull' };
   var opened = c.updatedAt;
-  var dams = '<datalist id="damList">' + D.cows.map(function (x) { return '<option value="' + esc(x.tag) + '">'; }).join('') + '</datalist>';
+  var dams = '<datalist id="damList">' + D.cows.filter(function (x) { return x.tag && x.sex !== 'male'; }).map(function (x) { return '<option value="' + esc(x.tag) + '">'; }).join('') + '</datalist>';
   var btns = [{ t: 'Cancel', v: null }, { t: 'Save', cls: 'pri', act: function (root) {
     var o = readForm(root, fields);
     if (!o.born) { setWarn(root, ['Date born is needed so the calf lands in the right season.']); return false; }
@@ -1193,7 +1346,12 @@ function rSales(m) {
 }
 
 /* ---------- herd: cows + movements ---------- */
-var COW_F = [{ k: 'tag', label: 'Tag / name' }, { k: 'breed', label: 'Breed', hint: 'optional' }, { k: 'birthYear', label: 'Birth year', type: 'number', hint: 'optional' }, { k: 'notes', label: 'Notes', type: 'textarea', wide: true }];
+function opt(a) { return a.map(function (x) { return [x[0], x[1]]; }); }
+var COW_F = [{ k: 'tag', label: 'Visual tag (VID)' }, { k: 'rfid', label: 'RFID chip (EID)', hint: '15 digits', rfid: true },
+  { k: 'sex', label: 'Sex', type: 'select', opts: opt(H.SEX) }, { k: 'role', label: 'Role', type: 'select', opts: opt(H.ROLE) },
+  { k: 'group', label: 'Group / tag colour', list: 'grpList', hint: 'e.g. Pink' }, { k: 'status', label: 'Status', type: 'select', opts: opt(H.STATUS), def: 'active' },
+  { k: 'birthYear', label: 'Birth year', type: 'number', hint: 'optional' }, { k: 'breed', label: 'Breed', hint: 'optional' },
+  { k: 'firstSeen', label: 'First seen / scanned', type: 'date', hint: 'optional' }, { k: 'notes', label: 'Notes', type: 'textarea', wide: true }];
 var MOVE_TYPES = [['purchase', 'Purchase (bought in)'], ['death', 'Death (adult)'], ['in', 'Other in (gift, transfer)'], ['out', 'Other out (slaughter, transfer, theft)']];
 function moveFields() { return [{ k: 'date', label: 'Date', type: 'date', def: today() }, { k: 'type', label: 'Type', type: 'select', opts: MOVE_TYPES }, { k: 'head', label: 'Number of head', type: 'number', def: 1 },
   { k: 'cls', label: 'Class', type: 'select', opts: D.settings.classes }, { k: 'amount', label: 'Amount R', type: 'number', hint: 'purchase cost, optional' }, { k: 'note', label: 'Notes / cause', type: 'textarea', wide: true }]; }
@@ -1202,7 +1360,7 @@ function editGeneric(arr, item, fields, title, what, check) {
   var isNew = !item; item = item || {};
   var opened = item.updatedAt;
   var btns = [{ t: 'Cancel', v: null }, { t: 'Save', cls: 'pri', act: function (root) {
-    var o = readForm(root, fields), err = check && check(o);
+    var o = readForm(root, fields), err = check && check(o, isNew ? null : item);
     if (err) { setWarn(root, [err]); return false; }
     if (piiFail(o, fields)) return false;
     if (isNew) { putRec(arr, Object.assign({ id: uid() }, o)); toast('Saved'); }
@@ -1211,7 +1369,14 @@ function editGeneric(arr, item, fields, title, what, check) {
   if (!isNew) btns.unshift({ t: 'Delete', cls: 'danger left', act: function (root, close) { confirmDel(what).then(function (ok) { if (!ok) return; delRec(arr, item.id); close(); }); return false; } });
   dlg({ title: (isNew ? 'Add ' : 'Edit ') + title, html: formHTML(fields, item) + whoLine(item) + '<div class="warns"></div>', buttons: btns });
 }
-function cowCheck(o) { return o.tag ? '' : 'Enter a tag or name.'; }
+function cowCheck(o, item) {
+  if (o.rfid) o.rfid = H.normEID(o.rfid);
+  if (!o.tag && !o.rfid) return 'Enter a visual tag or an RFID number.';
+  if (o.rfid && !H.validEID(o.rfid)) return 'An RFID (EID) number has 15 digits, e.g. 900247003453900.';
+  var dup = o.rfid && D.cows.filter(function (c) { return c.rfid === o.rfid && (!item || c.id !== item.id); })[0];
+  if (dup) return 'RFID ' + o.rfid + ' is already on animal ' + (dup.tag || dup.id) + '.';
+  return '';
+}
 function moveCheck(o) { return o.date && o.head > 0 ? '' : 'Enter a date and number of head.'; }
 function rHerd(m) {
   var e = C.herdEstimate(D), o = D.settings.opening || {};
@@ -1219,9 +1384,7 @@ function rHerd(m) {
     (e ? '<p style="font-size:22px;margin:6px 0"><b>' + fN(e.total) + '</b> head</p><p class="small muted">' + fN(e.opening) + ' on ' + fD(e.date) + ' + ' + e.bornAlive + ' calves born alive − ' + e.calfDeaths + ' calf deaths + ' + e.purchased + ' bought + ' + e.otherIn + ' other in − ' + e.sold + ' sold − ' + e.deaths + ' adult deaths − ' + e.otherOut + ' other out. Check it against a physical count now and then.</p>'
       : '<p class="small muted">Enter a head count on a known date (e.g. your last physical count) and the app keeps a running estimate from calves, sales, purchases and deaths.</p>') +
     '<div class="row"><label class="chk small">Counted <input id="hCnt" type="number" inputmode="numeric" style="width:90px" value="' + esc(o.count === undefined ? '' : o.count) + '"></label><label class="chk small">on <input id="hDate" type="date" style="width:auto" value="' + esc(o.date || '') + '"></label><button id="hSave">Save count</button></div></div>';
-  var cows = D.cows.slice().sort(function (a, b) { return String(a.tag).localeCompare(String(b.tag)); });
-  h += '<div class="row"><h3 class="sp">Cows &amp; heifers (optional)</h3><button id="cwAdd">+ Add cow</button></div><div class="tw"><table><thead><tr><th>Tag / name</th><th>Breed</th><th class="n">Born</th><th class="n">Calves on record</th><th>Notes</th></tr></thead><tbody>' +
-    (cows.length ? cows.map(function (c) { var n = D.calves.filter(function (x) { return x.dam && x.dam === c.tag; }).length; return '<tr class="click" data-cow="' + c.id + '"><td>' + esc(c.tag) + exTag(c) + '</td><td>' + esc(c.breed) + '</td><td class="n">' + esc(c.birthYear) + '</td><td class="n">' + n + '</td><td class="wrap small">' + esc(c.notes) + '</td></tr>'; }).join('') : '<tr><td colspan="5" class="muted">Not needed – add cows only if you want to track dams.</td></tr>') + '</tbody></table></div>';
+  h += herdRegisterHTML();
   var mv = D.moves.slice().sort(function (a, b) { return a.date < b.date ? 1 : -1; });
   h += '<div class="row"><h3 class="sp">Other movements (purchases, adult deaths…)</h3><button id="mvAdd">+ Add movement</button></div><div class="tw"><table><thead><tr><th>Date</th><th>Type</th><th class="n">Head</th><th>Class</th><th class="n">Amount</th><th>Notes</th></tr></thead><tbody>' +
     (mv.length ? mv.map(function (x) { var t = MOVE_TYPES.filter(function (y) { return y[0] === x.type; })[0]; return '<tr class="click" data-mv="' + x.id + '"><td>' + fD(x.date) + exTag(x) + '</td><td>' + esc(t ? t[1] : x.type) + '</td><td class="n">' + fN(x.head) + '</td><td>' + esc(x.cls) + '</td><td class="n">' + (x.amount === '' || x.amount === undefined ? '' : fR(x.amount, 0)) + '</td><td class="wrap small">' + esc(x.note) + '</td></tr>'; }).join('') : '<tr><td colspan="6" class="muted">None recorded.</td></tr>') + '</tbody></table></div>';
@@ -1230,10 +1393,111 @@ function rHerd(m) {
     var c = num($('#hCnt').value), d = $('#hDate').value;
     var op = c === null || !d ? null : { count: c, date: d }; putSettings({ opening: op }); toast(op ? 'Count saved' : 'Count cleared');
   };
-  $('#cwAdd').onclick = function () { editGeneric('cows', null, COW_F, 'cow / heifer', 'this cow record', cowCheck); };
+  wireRegister(m);
   $('#mvAdd').onclick = function () { editGeneric('moves', null, moveFields(), 'movement', 'this movement', moveCheck); };
-  $$('tr[data-cow]', m).forEach(function (tr) { tr.onclick = function () { editGeneric('cows', D.cows.filter(function (c) { return c.id === tr.dataset.cow; })[0], COW_F, 'cow / heifer', 'this cow record', cowCheck); }; });
   $$('tr[data-mv]', m).forEach(function (tr) { tr.onclick = function () { editGeneric('moves', D.moves.filter(function (c) { return c.id === tr.dataset.mv; })[0], moveFields(), 'movement', 'this movement', moveCheck); }; });
+}
+
+/* ---------- animal register (cows, heifers, bulls; RFID) + RFID scan CSV import ---------- */
+function statusLabel(v) { var t = H.STATUS.filter(function (x) { return x[0] === (v || 'active'); })[0]; return t ? t[1] : v; }
+function cowStatus(c) { return c.status || 'active'; }
+/* grazing: every animal on the farm eats, workers (legacy, being phased out) included; the farm's own herd figures leave them out */
+function grazing() {
+  var on = D.cows.filter(function (c) { var s = cowStatus(c); return s !== 'sold' && s !== 'died'; });
+  var g = { own: 0, bulls: 0, workers: 0, legacy: 0, check: 0, cap: num((CLOUD.settings || {}).capacityLSU) || 425 };
+  on.forEach(function (c) { var s = cowStatus(c); if (s === 'worker') g.workers++; else if (s === 'legacy') g.legacy++; else if (s === 'check') g.check++; else if (c.role === 'breeding bull' || c.sex === 'male') g.bulls++; else g.own++; });
+  g.total = g.own + g.bulls + g.legacy + g.workers + g.check; return g;
+}
+function herdRegisterHTML() {
+  var cows = D.cows, h = '';
+  var g = grazing();
+  h += '<div class="card" id="grazeCard"><b>Grazing load</b> <span class="small muted">(1 head counted as 1 LSU – adjust if you use LSU factors)</span><div class="tw" style="margin-top:6px"><table class="kvt"><tbody>' +
+    '<tr><td>Own herd – breeding females &amp; heifers</td><td class="n">' + fN(g.own) + '</td></tr>' +
+    '<tr><td>Own herd – bulls</td><td class="n">' + fN(g.bulls) + '</td></tr>' +
+    '<tr><td>Legacy (being phased out)</td><td class="n">' + fN(g.legacy) + '</td></tr>' +
+    '<tr><td>Workers (A-, D-, E-, G-, J- tags; not own herd)</td><td class="n">' + fN(g.workers) + '</td></tr>' +
+    (g.check ? '<tr><td>Not yet assigned (status “To check”)</td><td class="n">' + fN(g.check) + '</td></tr>' : '') +
+    '<tr><td><b>Total grazing</b></td><td class="n"><b>' + fN(g.total) + '</b></td></tr><tr><td>Capacity (LSU) · use</td><td class="n">' + fN(g.cap) + ' · ' + fP(g.cap ? g.total / g.cap : null) + '</td></tr></tbody></table></div>' +
+    '<div class="row" style="margin-top:6px"><label class="chk small">Capacity <input id="capLSU" type="number" inputmode="numeric" style="width:90px" value="' + esc(g.cap) + '"> LSU</label></div>' +
+    (g.total > g.cap ? '<p class="small" style="color:#a33">⚠ ' + fN(g.total - g.cap) + ' over the ' + fN(g.cap) + ' LSU capacity.</p>' : '') +
+    '<p class="small muted">Sold and died animals are not counted. Legacy and worker animals graze, so they count here, but are left out of the own-herd, group and breeding figures.</p></div>';
+  var groups = {}; cows.forEach(function (c) { var s = cowStatus(c); if (s === 'sold' || s === 'died' || s === 'legacy' || s === 'worker') return; var k = c.group || 'No group yet'; groups[k] = (groups[k] || 0) + 1; });
+  var gk = Object.keys(groups).sort();
+  h += '<div class="row"><h3 class="sp">Animals (' + fN(cows.length) + ')</h3><button id="cwImp">Import RFID scan CSV…</button><button id="cwAdd">+ Add animal</button></div>' +
+    (gk.length ? '<p class="small muted">Own herd by group: ' + gk.map(function (k) { return esc(k) + ' <b>' + groups[k] + '</b>'; }).join(' · ') + '</p>' : '') +
+    '<div class="row"><input id="cwQ" type="search" placeholder="Search tag, RFID (last digits), group, notes…" style="flex:1;min-width:180px" value="' + esc(U.cowQ || '') + '">' +
+    '<select id="cwSt" style="width:auto"><option value="">All statuses</option>' + H.STATUS.map(function (x) { return '<option value="' + x[0] + '"' + (U.cowSt === x[0] ? ' selected' : '') + '>' + esc(x[1]) + '</option>'; }).join('') + '</select></div>' +
+    '<datalist id="grpList">' + H.GROUPS.concat(gk).filter(function (x, i, a) { return x !== 'No group yet' && a.indexOf(x) === i; }).map(function (x) { return '<option value="' + esc(x) + '">'; }).join('') + '</datalist>' +
+    '<div class="tw"><table id="cwT"><thead><tr><th>Tag</th><th>RFID</th><th>Group</th><th>Sex</th><th>Status</th><th class="n">Born</th><th class="n">Calves</th><th>Notes</th></tr></thead><tbody></tbody></table></div><p class="small muted" id="cwN"></p>';
+  return h;
+}
+function cowRows() {
+  var q = U.cowQ || '', st = U.cowSt || '';
+  var list = D.cows.filter(function (c) { return (!st || cowStatus(c) === st) && H.matches(c, q); })
+    .sort(function (a, b) { return String(a.tag || '~' + a.rfid).localeCompare(String(b.tag || '~' + b.rfid), undefined, { numeric: true }); });
+  var dams = {}; D.calves.forEach(function (x) { if (x.dam) dams[x.dam] = (dams[x.dam] || 0) + 1; });
+  var shown = list.slice(0, 600);
+  $('#cwT tbody').innerHTML = shown.length ? shown.map(function (c) {
+    return '<tr class="click" data-cow="' + esc(c.id) + '"><td>' + (c.tag ? esc(c.tag) : '<i class="muted">no tag</i>') + exTag(c) + '</td><td class="small">' + esc(c.rfid || '') + '</td><td>' + esc(c.group || '') + '</td><td>' + esc(c.sex === 'male' ? 'M' : c.sex === 'female' ? 'F' : '') + '</td><td class="small">' + esc(statusLabel(cowStatus(c))) + '</td><td class="n">' + esc(c.birthYear || '') + '</td><td class="n">' + ((c.tag && dams[c.tag]) || '') + '</td><td class="wrap small">' + esc(c.notes || '') + '</td></tr>';
+  }).join('') : '<tr><td colspan="8" class="muted">' + (D.cows.length ? 'No animals match.' : 'No animals yet – add them one by one, or import the RFID scanner’s CSV export.') + '</td></tr>';
+  $('#cwN').textContent = (list.length > shown.length ? 'Showing first ' + shown.length + ' of ' + list.length + ' – search to narrow down.' : list.length + ' shown');
+  $$('#cwT tr[data-cow]').forEach(function (tr) { tr.onclick = function () { editAnimal(D.cows.filter(function (c) { return c.id === tr.dataset.cow; })[0]); }; });
+}
+function editAnimal(c) { editGeneric('cows', c || null, COW_F, 'animal', 'this animal record', cowCheck); }
+function wireRegister(m) {
+  $('#cwAdd').onclick = function () { editAnimal(null); };
+  $('#cwImp').onclick = pickScanCSV;
+  $('#cwQ').oninput = function () { U.cowQ = this.value; saveUI(); cowRows(); };
+  $('#cwSt').onchange = function () { U.cowSt = this.value; saveUI(); cowRows(); };
+  $('#capLSU').onchange = function () { var v = num(this.value); if (v === null || v <= 0) { info('Capacity', '<p>Enter the farm’s grazing capacity in LSU, e.g. 425.</p>'); return; } putSettings({ capacityLSU: v }); toast('Capacity saved'); };
+  cowRows();
+}
+function pickScanCSV() {
+  var inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.csv,text/csv,text/plain'; inp.style.display = 'none';
+  inp.onchange = function () { var f = inp.files[0]; inp.remove(); if (f) readScanFile(f); };
+  document.body.appendChild(inp); inp.click();
+}
+function readScanFile(f) {
+  if (f.size > 5e6) { info('File too big', '<p>That file is over 5 MB – is it the scanner’s CSV export?</p>'); return; }
+  var r = new FileReader();
+  r.onload = function () { importScanText(String(r.result), f.name); };
+  r.onerror = function () { info('Import failed', '<p>Could not read the file.</p>'); };
+  r.readAsText(f);
+}
+function importScanText(text, name) {
+  var parsed = H.parseCSV(text);
+  var opts = { legacy: false };
+  function plan() { return H.planImport(parsed, D.cows, opts); }
+  var P = plan();
+  if (P.error) { info('Import RFID scan CSV', '<p>' + esc(P.error) + '</p><p class="small muted">Nothing was changed.</p>'); return; }
+  function body(P) {
+    var c = P.counts, gk = Object.keys(P.groups).sort();
+    var h = '<p class="small muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + c.rows + ' rows · ' + esc(name || 'file') + '</p>' +
+      '<div class="tw" id="impCounts"><table class="kvt"><tbody><tr><td>New animals</td><td class="n"><b>' + c.add + '</b></td></tr><tr><td>Already in the app – blanks will be filled</td><td class="n"><b>' + c.update + '</b></td></tr><tr><td>Already in the app – up to date</td><td class="n"><b>' + c.same + '</b></td></tr><tr><td>Skipped</td><td class="n"><b>' + c.skip + '</b></td></tr></tbody></table></div>' +
+      '<label class="chk small" style="align-items:flex-start;margin-top:8px"><input type="checkbox" id="impLeg"' + (opts.legacy ? ' checked' : '') + '><span>Mark the old-herd 18-xx tags (born 2018) as <b>Legacy – phase out</b>. Unticked, they come in as “To check”. Letter tags (A-, D-, E-, G-, J-) always come in as <b>Workers</b>.</span></label>' +
+      '<p class="small"><b>By group</b> (from the tag pattern): ' + gk.map(function (k) { return esc(k) + ' <b>' + P.groups[k] + '</b>'; }).join(' · ') + '</p>' +
+      '<p class="small"><b>By birth year</b> (first two digits of the tag; year only): ' + Object.keys(P.years).sort().map(function (k) { return esc(k) + ' <b>' + P.years[k] + '</b>'; }).join(' · ') + '</p>' +
+      (P.bulls.length ? '<p class="small"><b>Breeding bulls (BUL tags): ' + P.bulls.length + '</b> – ' + P.bulls.map(function (b) { return esc(b.vid) + (b.tracked ? ' ✓' : ' <i>(not on the tracked list → To check)</i>'); }).join(', ') + '</p>' : '') +
+      (P.noVid.length ? '<p class="small"><b>' + P.noVid.length + ' chip(s) without a visual tag</b> – imported with the RFID only, status To check.</p>' : '') +
+      (P.retag.length ? '<p class="small">' + P.retag.length + ' re-tagged animal(s) (“New Tag:” in notes) – the new tag is used.</p>' : '') +
+      (P.skip.length ? '<p class="small"><b>Skipped</b></p><div class="tw" style="max-height:140px"><table><tbody>' + P.skip.slice(0, 50).map(function (x) { return '<tr><td>line ' + x.line + '</td><td>' + esc(x.vid || '') + '</td><td>' + esc(x.why) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '') +
+      '<p class="small muted">Matching: RFID first, then visual tag. Nothing you entered by hand is overwritten – only blank fields are filled. Sex is set only for BUL tags (male, breeding bull) and the known groups (female); the rest stays Unknown. Importing the same file again adds nothing.</p>';
+    return h;
+  }
+  dlg({ title: 'Import RFID scan CSV', wide: true, html: '<div id="impBody">' + body(P) + '</div>',
+    onOpen: function (root) {
+      root.addEventListener('change', function (e) { if (e.target.id !== 'impLeg') return; opts.legacy = e.target.checked; P = plan(); $('#impBody', root).innerHTML = body(P); var b = $$('.ft button', root.parentNode)[1]; if (b) b.textContent = btnText(P); });
+    },
+    buttons: [{ t: 'Cancel', v: null }, { t: btnText(P), cls: 'pri', act: function () {
+      var ops = P.add.map(function (r) { return { k: 'cows', rec: r }; }).concat(P.update.map(function (u) { return { k: 'cows', rec: u.rec }; }));
+      if (!ops.length) { toast('Nothing new to import'); return true; }
+      var n = ops.length;
+      putMany(ops).then(function () { toast(n + ' animal records saved'); });
+      U.hideEx = true; saveUI();
+      info('Import done', '<p><b>' + P.counts.add + '</b> new and <b>' + P.counts.update + '</b> updated animal records saved' + (P.counts.skip ? ', ' + P.counts.skip + ' skipped' : '') + '.</p><p class="small muted">They show at once on this phone and sync to the farm database when there is signal (in batches of 400).</p>');
+      return true;
+    } }] });
+  function btnText(P) { var n = P.counts.add + P.counts.update; return n ? 'Import ' + n : 'Nothing to import'; }
 }
 
 function csvFor(kind) {
@@ -1245,7 +1509,7 @@ function csvFor(kind) {
     var r = C.calcSale(s); function f2(v) { return v === null ? '' : v.toFixed(2); }
     return [fD(s.date), s.venue, s.buyer, s.cls, r.head, r.kg, f2(r.pkg), f2(r.phead), f2(r.gross), s.commPct, f2(r.comm), s.levies, s.transport, s.other, f2(r.ded), f2(r.net), s.calfIds.map(function (id) { return calfTag[id]; }).join(' '), s.note, ex(s)]; }));
   if (kind === 'moves') return [['Date', 'Type', 'Head', 'Class', 'Amount R', 'Notes', 'Example']].concat(D.moves.map(function (x) { return [fD(x.date), x.type, x.head, x.cls, x.amount, x.note, ex(x)]; }));
-  if (kind === 'cows') return [['Tag', 'Breed', 'Birth year', 'Notes', 'Example']].concat(D.cows.map(function (x) { return [x.tag, x.breed, x.birthYear, x.notes, ex(x)]; }));
+  if (kind === 'cows') return [['Visual tag (VID)', 'RFID (EID)', 'Sex', 'Role', 'Group', 'Status', 'Birth year', 'Breed', 'First seen', 'Notes', 'Example']].concat(D.cows.map(function (x) { return [x.tag, x.rfid ? '\u2060' + x.rfid : '', x.sex, x.role, x.group, statusLabel(x.status), x.birthYear, x.breed, fD(x.firstSeen), x.notes, ex(x)]; }));
   var list = seasons();
   return [['Season', 'Start', 'End', 'Calves born', 'Bulls', 'Heifers', 'Died', 'Stillborn', 'Weaned', 'Weaning rate %', 'Avg weaning kg', 'Head sold', 'kg sold', 'Avg R/kg', 'Avg R/head', 'Gross R', 'Deductions R', 'Net R', 'Bought in', 'Adult deaths']].concat(list.map(function (se) {
     var s = C.seasonStats(D, se); function f(v, dp) { return v === null ? '' : v.toFixed(dp); }
@@ -1445,7 +1709,7 @@ function rData(m) {
     (adm ? '<label class="btn">Upload from backup file…<input id="iJson" type="file" accept=".json,application/json" style="display:none"></label>' : '') + '</div>' +
     (adm ? '<p class="small muted">Uploading adds records that are not in the database yet (matched by id); existing records and example data are skipped.</p>' : '<p class="small muted">Only admins can upload a backup into the farm database.</p>') + '</div>';
   if (adm) { var v1 = localV1(); if (v1) h += '<div class="card"><b>Earlier local-only version</b><p class="small">This device still has data from v1 (' + counts(v1) + ', including any example rows).</p><button id="xMig">Upload new records to farm database</button></div>'; }
-  h += '<div class="card"><b>Export to spreadsheet (CSV)</b><div class="row" style="margin-top:6px"><select id="csvK" style="width:auto"><option value="summary">Season summary</option><option value="calves">Calves</option><option value="batches">Batch weanings</option><option value="sales">Sales</option><option value="moves">Movements</option><option value="cows">Cows</option></select><button id="xCsv">Download CSV</button></div></div>';
+  h += '<div class="card"><b>Export to spreadsheet (CSV)</b><div class="row" style="margin-top:6px"><select id="csvK" style="width:auto"><option value="summary">Season summary</option><option value="calves">Calves</option><option value="batches">Batch weanings</option><option value="sales">Sales</option><option value="moves">Movements</option><option value="cows">Animals (register)</option></select><button id="xCsv">Download CSV</button></div></div>';
   if (hasExample()) h += '<div class="card"><b>Example data</b><p class="small">Made-up records marked EXAMPLE, shown only while the farm database is empty. They are never saved.</p><button id="dRemEx">Remove example data</button></div>';
   h += '<div class="card"><b>Privacy</b><p class="small">No ID numbers or cell numbers are stored – the app (and the database rules) refuse them. Buyer is a name only and optional. Only approved family members can open the farm database.</p></div>';
   if (adm) h += '<div class="card"><b>Danger zone</b><p class="small">Deletes all farm records in the shared database for everyone. Members are not affected.</p><button id="dClr" class="danger">Delete all farm records…</button></div>';

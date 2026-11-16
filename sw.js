@@ -2,7 +2,7 @@
    at once when online); the versioned Firebase SDK files from gstatic are cached on first use. Data sync is
    handled by Firestore's own offline cache, not here. The weaner price feed (prices.json) is never cached here –
    it always goes to the network; the app keeps its own dated copy for use without signal. */
-var CACHE = 'donegal-farm-v2.1';
+var CACHE = 'donegal-farm-v2.2';
 var SDK = ['firebase-app.js', 'firebase-auth.js', 'firebase-firestore.js'].map(function (f) { return 'https://www.gstatic.com/firebasejs/10.14.1/' + f; });
 self.addEventListener('install', function (e) {
   e.waitUntil(Promise.all([
