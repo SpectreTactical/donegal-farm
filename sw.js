@@ -1,7 +1,8 @@
 /* Donegal Farm service worker: lets the app open with no signal. index.html is network-first (patches go live
    at once when online); the versioned Firebase SDK files from gstatic are cached on first use. Data sync is
-   handled by Firestore's own offline cache, not here. */
-var CACHE = 'donegal-farm-v2.0';
+   handled by Firestore's own offline cache, not here. The weaner price feed (prices.json) is never cached here –
+   it always goes to the network; the app keeps its own dated copy for use without signal. */
+var CACHE = 'donegal-farm-v2.1';
 var SDK = ['firebase-app.js', 'firebase-auth.js', 'firebase-firestore.js'].map(function (f) { return 'https://www.gstatic.com/firebasejs/10.14.1/' + f; });
 self.addEventListener('install', function (e) {
   e.waitUntil(Promise.all([
@@ -18,6 +19,8 @@ self.addEventListener('fetch', function (e) {
     return;
   }
   if (url.origin !== location.origin) return;
+  /* weaner price feed: always from the network, never from a cache (the app keeps its own dated copy for no-signal use) */
+  if (/\/prices\.json$/.test(url.pathname)) { e.respondWith(fetch(new Request(e.request, { cache: 'no-store' }))); return; }
   if (e.request.mode === 'navigate' || /\/(index\.html)?$/.test(url.pathname)) {
     e.respondWith(fetch(e.request).then(function (r) { if (r.ok) { var cp = r.clone(); caches.open(CACHE).then(function (c) { c.put('./', cp); }); } return r; })
       .catch(function () { return caches.open(CACHE).then(function (c) { return c.match('./'); }).then(function (hit) { return hit || new Response('Offline', { status: 503 }); }); }));
