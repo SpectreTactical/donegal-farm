@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
+<meta name="referrer" content="no-referrer">
 <title>Donegal Farm – Herd Tracker</title>
 <style>
 :root{--g:#2f5d3a;--g2:#e7f0e8;--bd:#d5dbd3;--tx:#1d2420;--mut:#5f6b63;--bg:#f6f7f4;--warn:#8a5a00;--wbg:#fff4d6;--red:#a3261b;--bull:#3b6ea8;--heif:#c0607e}
@@ -103,17 +104,41 @@ td.wrap{white-space:normal;min-width:140px}
 }
 @media screen and (max-width:600px){#print .page{padding:5mm;overflow-x:auto}.rep .sum,.rep .charts{grid-template-columns:1fr}}
 @media print{#print .pbar{display:none}#print .page{padding:0}}
+.syncchip{background:rgba(255,255,255,.15);border:0;color:#fff;font-size:12px;padding:4px 10px;min-height:28px;border-radius:14px;white-space:nowrap}
+.syncchip[data-st=online]{color:#c9f5cf}.syncchip[data-st=offline]{color:#ffd88a}.syncchip[data-st=error]{color:#ffb4a8}
+body.signedout .top .tabs,body.signedout .syncchip,body.signedout #banners,body.signedout main{display:none}
+#auth[hidden]{display:none}
+.authbox{max-width:420px;margin:24px auto;background:#fff;border:1px solid var(--bd);border-radius:12px;padding:18px}
+.authbox h2{margin-top:14px}.authbox form button[type=submit]{width:100%;margin-top:4px}
+.brand.big .logo{font-size:34px}.brand.big b{font-size:20px}.brand.big small{display:block;color:var(--mut)}
+@media (max-width:600px){.syncchip{margin-left:auto}.authbox{margin:10px 4px}}
 
 </style>
+<script>
+/* ======================= FIREBASE CONFIG (Donegal Farm project) =======================
+   From Firebase console → Project settings → Your apps → Web app. These values identify the
+   project; they are not secrets. Access to the data is controlled by firestore.rules. */
+var FIREBASE_CONFIG = {
+  apiKey: "AIzaSyA1sMJJElPvH2pxnvqFzkEn7ET9ILOehSY",
+  authDomain: "donegal-farm.firebaseapp.com",
+  projectId: "donegal-farm",
+  storageBucket: "donegal-farm.firebasestorage.app",
+  messagingSenderId: "427776132803",
+  appId: "1:427776132803:web:2c1f4c1064811673608476"
+};
+/* ===================================== END CONFIG ===================================== */
+</script>
 </head>
-<body>
+<body class="signedout">
 <header class="top">
   <div class="brand"><span class="logo" aria-hidden="true">🐄</span><div><b>Donegal Farm</b><small>Herd Tracker</small></div></div>
   <nav class="tabs" id="tabs">
     <button data-t="dash">Dashboard</button><button data-t="calves">Calves</button><button data-t="wean">Weaning</button>
-    <button data-t="sales">Sales</button><button data-t="herd">Herd</button><button data-t="setup">Setup</button><button data-t="data">Data</button>
+    <button data-t="sales">Sales</button><button data-t="herd">Herd</button><button data-t="setup">Setup</button><button data-t="data">Data</button><button data-t="members" hidden>Members</button>
   </nav>
+  <button id="syncChip" class="syncchip" type="button" title="">● …</button>
 </header>
+<div id="auth"></div>
 <div id="banners"></div>
 <main id="main"></main>
 <div id="print" aria-hidden="true"></div>
@@ -311,11 +336,89 @@ td.wrap{white-space:normal;min-width:140px}
 
 </script>
 <script>
-/* Donegal Farm – Herd Tracker (offline, single file). Only uses localStorage keys starting "donegalFarm.v1." */
+/* Donegal Farm – Firebase backend (Auth email/password + Firestore with offline persistence).
+   SDK: modular ESM from gstatic, loaded on demand (same approach as Spectre Scoring). */
+var DF_FIREBASE_SDK = 'https://www.gstatic.com/firebasejs/10.14.1/';
+var DF_FARM = 'donegal';
+function dfConfigured(cfg) { return !!(cfg && cfg.apiKey && cfg.projectId && cfg.appId && !/REPLACE_ME/.test(cfg.apiKey + cfg.projectId + cfg.appId)); }
+function dfFirebaseBackend(cfg) {
+  var base = DF_FIREBASE_SDK, imp = function (u) { return import(u); };
+  return Promise.all([imp(base + 'firebase-app.js'), imp(base + 'firebase-auth.js'), imp(base + 'firebase-firestore.js')]).then(function (m) {
+    var A = m[0], Au = m[1], F = m[2];
+    var appCfg = {}; Object.keys(cfg).forEach(function (k) { if (k !== 'emulator') appCfg[k] = cfg[k]; });
+    var app = A.initializeApp(appCfg), auth = Au.getAuth(app), db;
+    try { db = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) }); }
+    catch (e) { db = F.getFirestore(app); }
+    if (cfg.emulator) {
+      Au.connectAuthEmulator(auth, 'http://' + cfg.emulator + ':' + (cfg.authPort || 9097), { disableWarnings: true });
+      F.connectFirestoreEmulator(db, cfg.emulator, cfg.firestorePort || 8087);
+    }
+    function farmCol(c) { return F.collection(db, 'farms', DF_FARM, c); }
+    function farmDoc(c, id) { return F.doc(db, 'farms', DF_FARM, c, id); }
+    function stamp(data, who) { var d = {}; Object.keys(data).forEach(function (k) { if (data[k] !== undefined) d[k] = data[k]; }); d.updatedBy = { uid: who.uid, name: who.name }; d.updatedAt = F.serverTimestamp(); return d; }
+    function plain(snapDoc) {
+      var d = snapDoc.data({ serverTimestamps: 'estimate' });
+      Object.keys(d).forEach(function (k) { if (d[k] && typeof d[k].toDate === 'function') d[k] = d[k].toDate().toISOString(); });
+      return d;
+    }
+    return {
+      kind: 'firebase',
+      onAuth: function (cb) { return Au.onAuthStateChanged(auth, function (u) { cb(u ? { uid: u.uid, email: u.email, name: u.displayName || '' } : null); }); },
+      signIn: function (email, pw) { return Au.signInWithEmailAndPassword(auth, email, pw); },
+      register: function (name, email, pw) {
+        return Au.createUserWithEmailAndPassword(auth, email, pw).then(function (c) {
+          return Au.updateProfile(c.user, { displayName: name }).catch(function () {}).then(function () {
+            return F.setDoc(F.doc(db, 'members', c.user.uid), { name: name, email: c.user.email, role: 'member', approved: false, createdAt: F.serverTimestamp() });
+          });
+        });
+      },
+      requestAccess: function (name) { var u = auth.currentUser; return F.setDoc(F.doc(db, 'members', u.uid), { name: name, email: u.email, role: 'member', approved: false, createdAt: F.serverTimestamp() }); },
+      reset: function (email) { return Au.sendPasswordResetEmail(auth, email); },
+      signOut: function () {
+        return Au.signOut(auth).then(function () { return F.terminate(db); }).then(function () { return F.clearIndexedDbPersistence(db).catch(function () {}); });
+      },
+      watchMember: function (uid, cb, onErr) { return F.onSnapshot(F.doc(db, 'members', uid), function (d) { cb(d.exists() ? plain(d) : null); }, onErr); },
+      watchMembers: function (cb, onErr) { return F.onSnapshot(F.collection(db, 'members'), function (q) { cb(q.docs.map(function (d) { var x = plain(d); x.uid = d.id; return x; })); }, onErr); },
+      updateMember: function (uid, patch, who) { var p = Object.assign({}, patch); if ('approved' in p || 'role' in p) { p.approvedBy = who.name; p.approvedAt = F.serverTimestamp(); } return F.updateDoc(F.doc(db, 'members', uid), p); },
+      deleteMember: function (uid) { return F.deleteDoc(F.doc(db, 'members', uid)); },
+      /* onChange(coll, [{type,id,data}]) ; onMeta(coll, fromCache, pendingCount) */
+      watchFarm: function (colls, onChange, onMeta, onErr) {
+        var uns = colls.map(function (c) {
+          return F.onSnapshot(farmCol(c), { includeMetadataChanges: true }, function (q) {
+            var ch = q.docChanges().map(function (x) { return { type: x.type, id: x.doc.id, data: plain(x.doc) }; });
+            if (ch.length) onChange(c, ch);
+            onMeta(c, q.metadata.fromCache, q.docs.filter(function (d) { return d.metadata.hasPendingWrites; }).length);
+          }, function (e) { onErr(c, e); });
+        });
+        return function () { uns.forEach(function (u) { u(); }); };
+      },
+      put: function (c, id, data, who) { return F.setDoc(farmDoc(c, id), stamp(data, who)); },
+      putSettings: function (data, who) { return F.setDoc(farmDoc('settings', 'main'), stamp(data, who), { merge: true }); },
+      del: function (c, id) { return F.deleteDoc(farmDoc(c, id)); },
+      /* ops: [{c,id,data}] (data null = delete); committed in batches of 400 */
+      many: function (ops, who) {
+        var ps = [];
+        for (var i = 0; i < ops.length; i += 400) {
+          var b = F.writeBatch(db);
+          ops.slice(i, i + 400).forEach(function (o) { if (o.data) b.set(farmDoc(o.c, o.id), stamp(o.data, who)); else b.delete(farmDoc(o.c, o.id)); });
+          ps.push(b.commit()); /* not chained: offline batches queue locally and sync later */
+        }
+        return Promise.all(ps);
+      },
+      F: F, db: db, auth: auth
+    };
+  });
+}
+
+</script>
+<script>
+/* Donegal Farm – Herd Tracker v2 (shared Firebase farm database; approved family members only).
+   Local storage: only keys starting "donegalFarm.v1." (UI state; the old v1 data key is read for migration only). */
 'use strict';
+var APP_VERSION = 'v2.0';
 var PFX = 'donegalFarm.v1.', KD = PFX + 'data', KU = PFX + 'ui';
 var C = window.Calc, num = C.num, fR = C.fmtR, fN = C.fmtN, fP = C.fmtPct, fD = C.fmtD;
-var D, U;
+var D, U = {};
 var DEFAULT_CLASSES = ['Weaner calf', 'Heifer', 'Cow', 'Bull', 'Ox', 'Other'];
 function $(s, r) { return (r || document).querySelector(s); }
 function $$(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
@@ -323,16 +426,21 @@ function esc(s) { return String(s === null || s === undefined ? '' : s).replace(
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function today() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 function daysSince(iso) { return iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 864e5) : null; }
+function clone(x) { return JSON.parse(JSON.stringify(x)); }
+function fTime(iso) { if (!iso) return ''; var d = new Date(iso); if (isNaN(d)) return ''; var ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); return (ds === today() ? 'today' : fD(ds)) + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
 
 /* ---------- data ---------- */
+var KEYS = ['seasons', 'cows', 'calves', 'batches', 'sales', 'moves'];
+var COLL = { seasons: 'seasons', cows: 'cows', calves: 'calves', batches: 'weanings', sales: 'sales', moves: 'movements' };
+var META_KEYS = ['createdBy', 'createdAt', 'updatedBy', 'updatedAt'];
 function empty() {
-  return { app: 'donegal-farm', v: 1, seasons: [], cows: [], calves: [], batches: [], sales: [], moves: [],
+  return { app: 'donegal-farm', v: 2, seasons: [], cows: [], calves: [], batches: [], sales: [], moves: [],
     settings: { seasonMode: 'year', classes: DEFAULT_CLASSES.slice(), yearCows: {}, opening: null, lastBackup: null, lastChange: null } };
 }
 function normalize(d) {
   var e = empty();
   if (!d || typeof d !== 'object') return e;
-  ['seasons', 'cows', 'calves', 'batches', 'sales', 'moves'].forEach(function (k) { e[k] = Array.isArray(d[k]) ? d[k].filter(function (x) { return x && typeof x === 'object'; }) : []; });
+  KEYS.forEach(function (k) { e[k] = Array.isArray(d[k]) ? d[k].filter(function (x) { return x && typeof x === 'object'; }) : []; });
   var s = d.settings || {};
   e.settings.seasonMode = s.seasonMode === 'named' ? 'named' : 'year';
   e.settings.classes = Array.isArray(s.classes) && s.classes.length ? s.classes.map(String) : DEFAULT_CLASSES.slice();
@@ -341,14 +449,14 @@ function normalize(d) {
   e.settings.lastBackup = s.lastBackup || null;
   e.settings.lastChange = s.lastChange || null;
   e.sales.forEach(function (x) { if (!Array.isArray(x.calfIds)) x.calfIds = []; });
-  ['seasons', 'cows', 'calves', 'batches', 'sales', 'moves'].forEach(function (k) { e[k].forEach(function (x) { if (!x.id) x.id = uid(); }); });
+  KEYS.forEach(function (k) { e[k].forEach(function (x) { if (!x.id) x.id = uid(); x.id = String(x.id).replace(/\//g, '_'); }); });
   return e;
 }
 function exampleData() {
   var d = empty(), y = new Date().getFullYear(), p = y - 1, ex = true;
-  function c(born, tag, sex, status, extra) { var o = { id: uid(), born: born, tag: tag, sex: sex, dam: '', bw: '', status: status, note: 'Example record', ex: ex }; for (var k in extra) o[k] = extra[k]; return o; }
-  d.cows = [{ id: uid(), tag: 'EX-COW-1', breed: 'Example breed', birthYear: p - 5, notes: 'Example record', ex: ex },
-            { id: uid(), tag: 'EX-COW-2', breed: 'Example breed', birthYear: p - 3, notes: 'Example record', ex: ex }];
+  function c(born, tag, sex, status, extra) { var o = { id: 'ex-' + uid(), born: born, tag: tag, sex: sex, dam: '', bw: '', status: status, note: 'Example record', ex: ex }; for (var k in extra) o[k] = extra[k]; return o; }
+  d.cows = [{ id: 'ex-' + uid(), tag: 'EX-COW-1', breed: 'Example breed', birthYear: p - 5, notes: 'Example record', ex: ex },
+            { id: 'ex-' + uid(), tag: 'EX-COW-2', breed: 'Example breed', birthYear: p - 3, notes: 'Example record', ex: ex }];
   d.calves = [
     c(p + '-10-12', 'EX-01', 'bull', 'alive', { dam: 'EX-COW-1', bw: 35, wDate: y + '-05-20', wWt: 220 }),
     c(p + '-10-20', 'EX-02', 'heifer', 'alive', { dam: 'EX-COW-2', bw: 32, wDate: y + '-05-20', wWt: 205 }),
@@ -356,40 +464,82 @@ function exampleData() {
     c(p + '-11-15', '', 'heifer', 'stillborn', {}),
     c(p + '-10-25', '', 'heifer', 'alive', {}), c(p + '-10-26', '', 'heifer', 'alive', {}), c(p + '-10-28', '', 'bull', 'alive', {}),
     c(y + '-10-08', 'EX-04', 'heifer', 'alive', { dam: 'EX-COW-1', bw: 33 })];
-  d.batches = [{ id: uid(), date: y + '-05-20', count: 3, avgWt: 210, bornApprox: p + '-10-20', note: 'Example batch weaning', ex: ex }];
-  var sale = { id: uid(), date: y + '-06-10', venue: 'Example auction', buyer: '', head: 2, cls: 'Weaner calf', kg: 425, pkg: 40, phead: '', gross: '', commPct: 5, comm: '', levies: 50, transport: 300, other: '', net: '', calfIds: [d.calves[0].id, d.calves[1].id], note: 'Example record', ex: ex };
-  d.sales = [sale, { id: uid(), date: y + '-06-10', venue: 'Example auction', buyer: '', head: 1, cls: 'Cow', kg: '', pkg: '', phead: 10000, gross: '', commPct: 5, comm: '', levies: 25, transport: 150, other: '', net: '', calfIds: [], note: 'Example record', ex: ex }];
-  d.moves = [{ id: uid(), date: y + '-03-01', type: 'purchase', head: 1, cls: 'Bull', amount: 20000, note: 'Example record', ex: ex }];
+  d.batches = [{ id: 'ex-' + uid(), date: y + '-05-20', count: 3, avgWt: 210, bornApprox: p + '-10-20', note: 'Example batch weaning', ex: ex }];
+  d.sales = [{ id: 'ex-' + uid(), date: y + '-06-10', venue: 'Example auction', buyer: '', head: 2, cls: 'Weaner calf', kg: 425, pkg: 40, phead: '', gross: '', commPct: 5, comm: '', levies: 50, transport: 300, other: '', net: '', calfIds: [d.calves[0].id, d.calves[1].id], note: 'Example record', ex: ex },
+    { id: 'ex-' + uid(), date: y + '-06-10', venue: 'Example auction', buyer: '', head: 1, cls: 'Cow', kg: '', pkg: '', phead: 10000, gross: '', commPct: 5, comm: '', levies: 25, transport: 150, other: '', net: '', calfIds: [], note: 'Example record', ex: ex }];
+  d.moves = [{ id: 'ex-' + uid(), date: y + '-03-01', type: 'purchase', head: 1, cls: 'Bull', amount: 20000, note: 'Example record', ex: ex }];
   return d;
 }
-function save() {
-  D.settings.lastChange = new Date().toISOString();
-  try { localStorage.setItem(KD, JSON.stringify(D)); return true; }
-  catch (e) { dlg({ title: 'Could not save', html: '<p>The browser refused to save (' + esc(e.message) + '). Please export a backup from the Data tab now so nothing is lost.</p>' }); return false; }
+
+/* ---------- cloud store: CLOUD mirrors Firestore (live listeners); D is the view the screens draw ---------- */
+var B = null;                         /* backend (Firebase, or a test double) */
+var ME = { user: null, member: null }; /* signed-in user + their members/{uid} doc */
+var CLOUD = { settings: null, loaded: {} }; KEYS.forEach(function (k) { CLOUD[k] = {}; });
+var SYNC = { fromCache: {}, pending: {}, err: '' };
+var EXAMPLE = null, stopFarm = null, renderT = null;
+function cloudCount() { return KEYS.reduce(function (a, k) { return a + Object.keys(CLOUD[k]).length; }, 0); }
+function allLoaded() { return KEYS.every(function (k) { return CLOUD.loaded[COLL[k]]; }); }
+function showingExample() { return allLoaded() && cloudCount() === 0 && !U.hideEx; }
+function rebuild() {
+  if (showingExample()) { if (!EXAMPLE) EXAMPLE = exampleData(); D = clone(EXAMPLE); }
+  else { D = empty(); KEYS.forEach(function (k) { D[k] = Object.keys(CLOUD[k]).map(function (id) { return clone(CLOUD[k][id]); }); }); }
+  var s = CLOUD.settings || {};
+  if (s.seasonMode === 'named') D.settings.seasonMode = 'named';
+  if (Array.isArray(s.classes) && s.classes.length) D.settings.classes = s.classes.slice();
+  if (s.yearCows && typeof s.yearCows === 'object') D.settings.yearCows = clone(s.yearCows);
+  D.settings.opening = s.opening || null;
+  D.settings.lastBackup = U.lastBackup || null;
+  var lc = null; KEYS.forEach(function (k) { D[k].forEach(function (x) { if (x.updatedAt && (!lc || x.updatedAt > lc)) lc = x.updatedAt; }); });
+  D.settings.lastChange = lc;
+  D.sales.forEach(function (x) { if (!Array.isArray(x.calfIds)) x.calfIds = []; });
+}
+function scheduleRender() { clearTimeout(renderT); renderT = setTimeout(function () { rebuild(); if (APP.screen === 'app') render(); else paintStatus(); }, 40); }
+function who() { return { uid: ME.user.uid, name: (ME.member && ME.member.name) || ME.user.name || 'Unknown' }; }
+function isAdmin() { return !!(ME.member && ME.member.approved && ME.member.role === 'admin'); }
+function exIds() { var m = {}; if (EXAMPLE) KEYS.forEach(function (k) { EXAMPLE[k].forEach(function (x) { m[x.id] = 1; }); }); return m; }
+function writeErr(e) {
+  var msg = e && e.code === 'permission-denied' ? 'The farm database refused this change – your access may have been removed. Ask an admin.' : (e && e.message) || String(e);
+  dlg({ title: 'Could not save to the farm database', html: '<p>' + esc(msg) + '</p>' });
+}
+/* prepares one record for the cloud: never example data, keeps who created it */
+function cloudRec(k, rec) {
+  if (rec.ex) throw new Error('Example records are never saved to the farm database.');
+  var r = {}; Object.keys(rec).forEach(function (x) { if (rec[x] !== undefined && x !== 'ex') r[x] = rec[x]; });
+  if (r.calfIds) { var exm = exIds(); r.calfIds = r.calfIds.filter(function (id) { return !exm[id]; }); }
+  var have = CLOUD[k][r.id];
+  r.createdBy = (have && have.createdBy) || (rec.createdBy && rec.createdBy.uid ? { uid: String(rec.createdBy.uid), name: String(rec.createdBy.name || 'Unknown') } : who());
+  r.createdAt = (have && have.createdAt) || rec.createdAt || new Date().toISOString();
+  delete r.updatedBy; delete r.updatedAt;
+  return r;
+}
+/* last write wins per record; the change shows at once (offline too) and syncs when there is signal */
+function putRec(k, rec) {
+  var r; try { r = cloudRec(k, rec); } catch (e) { info('Not saved', '<p>' + esc(e.message) + '</p>'); return; }
+  CLOUD[k][r.id] = Object.assign({}, r, { updatedBy: who(), updatedAt: new Date().toISOString() }); scheduleRender();
+  B.put(COLL[k], r.id, r, who()).catch(writeErr);
+}
+function delRec(k, id) { delete CLOUD[k][id]; scheduleRender(); B.del(COLL[k], id).catch(writeErr); }
+function putMany(ops) { /* ops [{k, rec}|{k, id, del:true}] */
+  var list = ops.map(function (o) { if (o.del) { delete CLOUD[o.k][o.id]; return { c: COLL[o.k], id: o.id, data: null }; } var r = cloudRec(o.k, o.rec); CLOUD[o.k][r.id] = Object.assign({}, r, { updatedBy: who(), updatedAt: new Date().toISOString() }); return { c: COLL[o.k], id: r.id, data: r }; });
+  scheduleRender();
+  return B.many(list, who()).catch(writeErr);
+}
+function putSettings(patch) { CLOUD.settings = Object.assign({}, CLOUD.settings || {}, patch); scheduleRender(); B.putSettings(patch, who()).catch(writeErr); }
+/* someone else changed the record while this dialog was open? ask before overwriting */
+function guardSave(k, id, openedAt, go) {
+  var now = CLOUD[k][id];
+  if (!id || !now || !openedAt || now.updatedAt === openedAt || (now.updatedBy && now.updatedBy.uid === ME.user.uid)) { go(); return; }
+  dlg({ title: 'Changed by someone else', html: '<p><b>' + esc(now.updatedBy ? now.updatedBy.name : 'Someone') + '</b> changed this record at ' + esc(fTime(now.updatedAt)) + ' while you were editing.</p><p>Save your version over theirs?</p>',
+    buttons: [{ t: 'Cancel', v: false }, { t: 'Save mine', v: true, cls: 'pri' }] }).then(function (ok) { if (ok) go(); });
 }
 function saveUI() { try { localStorage.setItem(KU, JSON.stringify(U)); } catch (e) {} }
-function load() {
-  var raw = null;
-  try { raw = localStorage.getItem(KD); } catch (e) {}
-  try { U = JSON.parse(localStorage.getItem(KU) || '{}') || {}; } catch (e) { U = {}; }
-  if (!U.tab) U.tab = 'dash';
-  if (raw === null) { D = exampleData(); save(); return; }
-  try { D = normalize(JSON.parse(raw)); }
-  catch (e) {
-    try { localStorage.setItem(PFX + 'unreadable-' + Date.now(), raw); } catch (e2) {}
-    D = empty();
-    setTimeout(function () { dlg({ title: 'Saved data could not be read', html: '<p>The stored data was damaged. A copy was kept on this device and the app started empty. Use <b>Data → Import backup</b> to restore your last backup.</p>' }); }, 50);
-  }
-}
-function hasExample() { return ['cows', 'calves', 'batches', 'sales', 'moves', 'seasons'].some(function (k) { return D[k].some(function (x) { return x.ex; }); }); }
-function realCount() { return ['cows', 'calves', 'batches', 'sales', 'moves', 'seasons'].reduce(function (a, k) { return a + D[k].filter(function (x) { return !x.ex; }).length; }, 0); }
-function removeExample() {
-  var gone = {};
-  ['cows', 'calves', 'batches', 'sales', 'moves', 'seasons'].forEach(function (k) { D[k] = D[k].filter(function (x) { if (x.ex) gone[x.id] = 1; return !x.ex; }); });
-  D.sales.forEach(function (s) { s.calfIds = s.calfIds.filter(function (id) { return !gone[id]; }); });
-  save(); render(); toast('Example data removed');
-}
+function loadUI() { try { U = JSON.parse(localStorage.getItem(KU) || '{}') || {}; } catch (e) { U = {}; } if (!U.tab) U.tab = 'dash'; }
+function hasExample() { return KEYS.some(function (k) { return D[k].some(function (x) { return x.ex; }); }); }
+function realCount() { return KEYS.reduce(function (a, k) { return a + D[k].filter(function (x) { return !x.ex; }).length; }, 0); }
+function removeExample() { U.hideEx = true; saveUI(); rebuild(); render(); toast('Example data hidden'); }
 function exTag(x) { return x && x.ex ? '<span class="tag">EXAMPLE</span>' : ''; }
+function whoLine(x) { if (!x || x.ex || !x.updatedBy) return ''; var c = x.createdBy && x.createdBy.name, u = x.updatedBy.name; return '<p class="small muted">Entered by ' + esc(c || u) + (x.createdAt ? ' on ' + esc(fTime(x.createdAt)) : '') + (u && (u !== c || x.updatedAt !== x.createdAt) ? ' · last changed by ' + esc(u) + ' ' + esc(fTime(x.updatedAt)) : '') + '</p>'; }
+function exReadOnly(x) { if (!x || !x.ex) return false; info('Example record', '<p>This is a made-up example record and can’t be edited or saved. Add your own records, or use <b>Remove example data</b> to hide the examples.</p>'); return true; }
 function saleOfCalf(id) { for (var i = 0; i < D.sales.length; i++) if (D.sales[i].calfIds.indexOf(id) >= 0) return D.sales[i]; return null; }
 
 /* ---------- dialogs (in-app only) ---------- */
@@ -507,26 +657,6 @@ function chartsHTML(list) {
     '</div>';
 }
 
-/* ---------- banners ---------- */
-function renderBanners() {
-  var h = '';
-  if (hasExample()) h += '<div class="banner ex"><span><b>Example data</b> is loaded (rows marked <span class="tag">EXAMPLE</span>). These are made-up records to show how the app works – not farm figures.</span><button id="bRemEx" class="pri">Remove example data</button></div>';
-  var lb = D.settings.lastBackup, lc = D.settings.lastChange, n = realCount();
-  var stale = n > 0 && (!lb || (lc && lc > lb && daysSince(lb) >= 7));
-  if (stale) h += '<div class="banner bk"><span>💾 ' + (lb ? 'Last backup was ' + daysSince(lb) + ' days ago and data has changed since.' : 'You have not made a backup yet.') + ' Data lives only in this browser.</span><button id="bBk">Export backup</button></div>';
-  $('#banners').innerHTML = h;
-  if ($('#bRemEx')) $('#bRemEx').onclick = removeExample;
-  if ($('#bBk')) $('#bBk').onclick = exportJSON;
-}
-
-/* ---------- render ---------- */
-function render() {
-  $$('#tabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.t === U.tab); });
-  renderBanners();
-  var m = $('#main');
-  ({ dash: rDash, calves: rCalves, wean: rWean, sales: rSales, herd: rHerd, setup: rSetup, data: rData }[U.tab] || rDash)(m);
-  saveUI();
-}
 function stat(label, val, sub) { return '<div class="stat"><span>' + esc(label) + '</span><b>' + val + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</div>'; }
 
 function rDash(m) {
@@ -563,9 +693,8 @@ function rDash(m) {
   $('#dPrint').onclick = function () { printReport(se); };
   $('#dCows').onchange = function () {
     var v = this.value.trim() === '' ? '' : num(this.value);
-    if (se.named) { var o = D.seasons.filter(function (x) { return x.id === se.key; })[0]; if (o) o.cowsBred = v; }
-    else D.settings.yearCows[se.name] = v;
-    save(); render();
+    if (se.named) { var o = D.seasons.filter(function (x) { return x.id === se.key; })[0]; if (o && !o.ex) putRec('seasons', Object.assign({}, o, { cowsBred: v })); }
+    else { var yc = clone(D.settings.yearCows || {}); yc[se.name] = v; putSettings({ yearCows: yc }); }
   };
 }
 function yoyRows() {
@@ -606,22 +735,28 @@ function calfWarn(o) {
   return w;
 }
 function editCalf(c) {
+  if (exReadOnly(c)) return;
   var isNew = !c, fields = calfFields(isNew); c = c || { status: 'alive', sex: 'bull' };
+  var opened = c.updatedAt;
   var dams = '<datalist id="damList">' + D.cows.map(function (x) { return '<option value="' + esc(x.tag) + '">'; }).join('') + '</datalist>';
   var btns = [{ t: 'Cancel', v: null }, { t: 'Save', cls: 'pri', act: function (root) {
     var o = readForm(root, fields);
     if (!o.born) { setWarn(root, ['Date born is needed so the calf lands in the right season.']); return false; }
     if (piiFail(o, fields)) return false;
     var n = isNew ? Math.max(1, Math.round(num(o.count) || 1)) : 1; delete o.count;
-    if (isNew) { for (var i = 0; i < n; i++) { var x = Object.assign({ id: uid() }, o); if (n > 1 && o.tag) x.tag = o.tag + '-' + (i + 1); D.calves.push(x); } }
-    else { Object.assign(c, o); delete c.ex; }
-    save(); render(); toast(isNew ? (n > 1 ? n + ' calves added' : 'Calf added') : 'Calf saved');
+    if (isNew) { var ops = []; for (var i = 0; i < n; i++) { var x = Object.assign({ id: uid() }, o); if (n > 1 && o.tag) x.tag = o.tag + '-' + (i + 1); ops.push({ k: 'calves', rec: x }); } putMany(ops); toast(n > 1 ? n + ' calves added' : 'Calf added'); }
+    else guardSave('calves', c.id, opened, function () { putRec('calves', Object.assign({}, c, o)); toast('Calf saved'); });
   } }];
   if (!isNew) btns.unshift({ t: 'Delete', cls: 'danger left', act: function (root, close) {
-    confirmDel('this calf record').then(function (ok) { if (!ok) return; D.calves = D.calves.filter(function (x) { return x !== c; }); D.sales.forEach(function (s) { s.calfIds = s.calfIds.filter(function (id) { return id !== c.id; }); }); save(); render(); close(); toast('Calf deleted'); });
+    confirmDel('this calf record').then(function (ok) {
+      if (!ok) return;
+      var ops = [{ k: 'calves', id: c.id, del: true }];
+      D.sales.forEach(function (s) { if (s.calfIds.indexOf(c.id) >= 0) ops.push({ k: 'sales', rec: Object.assign({}, s, { calfIds: s.calfIds.filter(function (id) { return id !== c.id; }) }) }); });
+      putMany(ops); close(); toast('Calf deleted');
+    });
     return false; } });
   var sold = !isNew && saleOfCalf(c.id);
-  dlg({ title: isNew ? 'Add calf' : 'Edit calf', html: (c.ex ? '<p class="small"><span class="tag">EXAMPLE</span> Saving changes makes this a normal record.</p>' : '') + formHTML(fields, c) + dams + (sold ? '<p class="small muted">Sold on ' + fD(sold.date) + ' at ' + esc(sold.venue || 'auction') + '.</p>' : '') + '<div class="warns"></div>', buttons: btns,
+  dlg({ title: isNew ? 'Add calf' : 'Edit calf', html: formHTML(fields, c) + dams + (sold ? '<p class="small muted">Sold on ' + fD(sold.date) + ' at ' + esc(sold.venue || 'auction') + '.</p>' : '') + whoLine(c) + '<div class="warns"></div>', buttons: btns,
     onOpen: function (root) { root.addEventListener('input', function () { var o = readForm(root, fields); o.id = c.id; setWarn(root, calfWarn(o)); }); } });
 }
 function rCalves(m) {
@@ -629,11 +764,11 @@ function rCalves(m) {
   var list = D.calves.filter(function (c) { return inSeason(f, c.born); }).sort(function (a, b) { return a.born < b.born ? 1 : -1; });
   var h = '<div class="row"><h2 class="sp">Calves</h2>' + seasonSelect('cSeason', f, true) + '<button id="cAdd" class="pri">+ Add calf</button></div>';
   h += '<p class="muted small">' + list.length + ' calf record(s). Tap a row to edit. Tags and dam are optional; use “How many” to add several untagged calves at once.</p>';
-  h += '<div class="tw"><table><thead><tr><th>Born</th><th>Tag</th><th>Sex</th><th>Dam</th><th class="n">Birth kg</th><th>Status</th><th>Weaned</th><th class="n">Wean kg</th><th>Sold</th><th>Notes</th></tr></thead><tbody>' +
+  h += '<div class="tw"><table><thead><tr><th>Born</th><th>Tag</th><th>Sex</th><th>Dam</th><th class="n">Birth kg</th><th>Status</th><th>Weaned</th><th class="n">Wean kg</th><th>Sold</th><th>Notes</th><th>By</th></tr></thead><tbody>' +
     (list.length ? list.map(function (c) { var s = saleOfCalf(c.id);
       return '<tr class="click" data-id="' + c.id + '"><td>' + fD(c.born) + '</td><td>' + (esc(c.tag) || '<span class="muted">–</span>') + exTag(c) + '</td><td>' + (c.sex === 'bull' ? 'Bull' : c.sex === 'heifer' ? 'Heifer' : '?') + '</td><td>' + esc(c.dam) + '</td><td class="n">' + fN(c.bw, 1) + '</td><td>' +
-        (c.status === 'died' || c.status === 'stillborn' ? '<span class="tag d">' + (c.status === 'died' ? 'Died' : 'Stillborn') + '</span>' : 'Alive') + '</td><td>' + fD(c.wDate) + '</td><td class="n">' + fN(c.wWt, 1) + '</td><td>' + (s ? '<span class="tag s">' + fD(s.date) + '</span>' : '') + '</td><td class="wrap small">' + esc(c.note) + '</td></tr>'; }).join('')
-      : '<tr><td colspan="10" class="muted">No calves recorded' + (f ? ' in this season' : '') + ' yet.</td></tr>') + '</tbody></table></div>';
+        (c.status === 'died' || c.status === 'stillborn' ? '<span class="tag d">' + (c.status === 'died' ? 'Died' : 'Stillborn') + '</span>' : 'Alive') + '</td><td>' + fD(c.wDate) + '</td><td class="n">' + fN(c.wWt, 1) + '</td><td>' + (s ? '<span class="tag s">' + fD(s.date) + '</span>' : '') + '</td><td class="wrap small">' + esc(c.note) + '</td><td class="small muted">' + esc(c.updatedBy ? c.updatedBy.name : '') + '</td></tr>'; }).join('')
+      : '<tr><td colspan="11" class="muted">No calves recorded' + (f ? ' in this season' : '') + ' yet.</td></tr>') + '</tbody></table></div>';
   m.innerHTML = h;
   $('#cSeason').onchange = function () { U.calfSeason = this.value; render(); };
   $('#cAdd').onclick = function () { editCalf(null); };
@@ -645,18 +780,19 @@ var BATCH_F = [{ k: 'date', label: 'Weaning date', type: 'date', def: today() },
   { k: 'avgWt', label: 'Average weight kg', type: 'number', hint: 'optional' }, { k: 'bornApprox', label: 'Calves born around', type: 'date', hint: 'sets the season' },
   { k: 'note', label: 'Notes', type: 'textarea', wide: true }];
 function editBatch(b) {
+  if (exReadOnly(b)) return;
   var isNew = !b; b = b || { date: today(), bornApprox: C.addDays(today(), -210) };
-  var touched = !isNew;
+  var touched = !isNew, opened = b.updatedAt;
   var btns = [{ t: 'Cancel', v: null }, { t: 'Save', cls: 'pri', act: function (root) {
     var o = readForm(root, BATCH_F);
     if (!o.date || !(o.count > 0)) { setWarn(root, ['Enter the weaning date and number of calves.']); return false; }
     if (piiFail(o, BATCH_F)) return false;
     if (!o.bornApprox) o.bornApprox = C.addDays(o.date, -210);
-    if (isNew) D.batches.push(Object.assign({ id: uid() }, o)); else { Object.assign(b, o); delete b.ex; }
-    save(); render(); toast('Batch weaning saved');
+    if (isNew) { putRec('batches', Object.assign({ id: uid() }, o)); toast('Batch weaning saved'); }
+    else guardSave('batches', b.id, opened, function () { putRec('batches', Object.assign({}, b, o)); toast('Batch weaning saved'); });
   } }];
-  if (!isNew) btns.unshift({ t: 'Delete', cls: 'danger left', act: function (root, close) { confirmDel('this batch weaning entry').then(function (ok) { if (!ok) return; D.batches = D.batches.filter(function (x) { return x !== b; }); save(); render(); close(); }); return false; } });
-  dlg({ title: isNew ? 'Batch weaning' : 'Edit batch weaning', html: '<p class="small muted">For calves that are not tagged individually. “Calves born around” decides which season’s calf crop this belongs to (default: 7 months before weaning).</p>' + formHTML(BATCH_F, b) + '<div class="warns"></div>', buttons: btns,
+  if (!isNew) btns.unshift({ t: 'Delete', cls: 'danger left', act: function (root, close) { confirmDel('this batch weaning entry').then(function (ok) { if (!ok) return; delRec('batches', b.id); close(); }); return false; } });
+  dlg({ title: isNew ? 'Batch weaning' : 'Edit batch weaning', html: '<p class="small muted">For calves that are not tagged individually. “Calves born around” decides which season’s calf crop this belongs to (default: 7 months before weaning).</p>' + formHTML(BATCH_F, b) + whoLine(b) + '<div class="warns"></div>', buttons: btns,
     onOpen: function (root) {
       $('[data-k=bornApprox]', root).addEventListener('input', function () { touched = true; });
       $('[data-k=date]', root).addEventListener('input', function () { if (!touched && this.value) $('[data-k=bornApprox]', root).value = C.addDays(this.value, -210); });
@@ -664,15 +800,15 @@ function editBatch(b) {
     } });
 }
 function weanIndividual() {
-  var cand = D.calves.filter(function (c) { return c.status !== 'died' && c.status !== 'stillborn' && !c.wDate; }).sort(function (a, b) { return a.born < b.born ? -1 : 1; });
-  if (!cand.length) { info('Nothing to wean', '<p>There are no live, unweaned calves on record. Use <b>Batch weaning</b> for untagged calves.</p>'); return; }
+  var cand = D.calves.filter(function (c) { return !c.ex && c.status !== 'died' && c.status !== 'stillborn' && !c.wDate; }).sort(function (a, b) { return a.born < b.born ? -1 : 1; });
+  if (!cand.length) { info('Nothing to wean', '<p>There are no live, unweaned calves on record' + (hasExample() ? ' (example calves can’t be weaned)' : '') + '. Use <b>Batch weaning</b> for untagged calves.</p>'); return; }
   var h = '<label class="f"><span>Weaning date</span><input id="wDate" type="date" value="' + today() + '"></label><p class="small muted">Tick the calves weaned and enter weights (optional).</p><div class="picklist">' +
-    cand.map(function (c) { return '<label><input type="checkbox" data-c="' + c.id + '"><span>' + (esc(c.tag) || '(untagged)') + exTag(c) + ' <span class="muted small">' + esc(c.sex || '?') + ', born ' + fD(c.born) + '</span></span><input type="number" inputmode="decimal" step="any" placeholder="kg" data-w="' + c.id + '"></label>'; }).join('') + '</div><div class="warns"></div>';
+    cand.map(function (c) { return '<label><input type="checkbox" data-c="' + c.id + '"><span>' + (esc(c.tag) || '(untagged)') + ' <span class="muted small">' + esc(c.sex || '?') + ', born ' + fD(c.born) + '</span></span><input type="number" inputmode="decimal" step="any" placeholder="kg" data-w="' + c.id + '"></label>'; }).join('') + '</div><div class="warns"></div>';
   dlg({ title: 'Wean calves', html: h, buttons: [{ t: 'Cancel', v: null }, { t: 'Save', cls: 'pri', act: function (root) {
     var d = $('#wDate', root).value, ids = $$('[data-c]:checked', root).map(function (e) { return e.dataset.c; });
     if (!d || !ids.length) { setWarn(root, ['Pick a date and at least one calf.']); return false; }
-    ids.forEach(function (id) { var c = D.calves.filter(function (x) { return x.id === id; })[0]; c.wDate = d; var w = num($('[data-w="' + id + '"]', root).value); c.wWt = w === null ? '' : w; });
-    save(); render(); toast(ids.length + ' calf/calves weaned');
+    putMany(ids.map(function (id) { var c = D.calves.filter(function (x) { return x.id === id; })[0], w = num($('[data-w="' + id + '"]', root).value); return { k: 'calves', rec: Object.assign({}, c, { wDate: d, wWt: w === null ? '' : w }) }; }));
+    toast(ids.length + ' calf/calves weaned');
   } }], onOpen: function (root) { root.addEventListener('input', function (e) { if (e.target.dataset.w && e.target.value) $('[data-c="' + e.target.dataset.w + '"]', root).checked = true; }); } });
 }
 function rWean(m) {
@@ -706,10 +842,12 @@ function calcBox(r) {
     row('R/kg', 'pkg', fR(r.pkg)) + row('R/head', 'phead', fR(r.phead)) + (r.avgKg ? row('Avg kg/head', 'x', fN(r.avgKg, 1)) : '') + '</table>';
 }
 function editSale(s) {
+  if (exReadOnly(s)) return;
   var isNew = !s, fields = saleFields(); s = s || { cls: D.settings.classes[0], calfIds: [] };
-  var cand = D.calves.filter(function (c) { if (s.calfIds.indexOf(c.id) >= 0) return true; return c.status !== 'died' && c.status !== 'stillborn' && !saleOfCalf(c.id); }).sort(function (a, b) { return a.born < b.born ? -1 : 1; });
+  var opened = s.updatedAt;
+  var cand = D.calves.filter(function (c) { if (s.calfIds.indexOf(c.id) >= 0) return true; return !c.ex && c.status !== 'died' && c.status !== 'stillborn' && !saleOfCalf(c.id); }).sort(function (a, b) { return a.born < b.born ? -1 : 1; });
   var link = '<details' + (s.calfIds.length ? ' open' : '') + '><summary class="small"><b>Link specific calves (optional)</b> – ' + cand.length + ' available</summary><div class="picklist">' +
-    (cand.length ? cand.map(function (c) { return '<label><input type="checkbox" data-link="' + c.id + '"' + (s.calfIds.indexOf(c.id) >= 0 ? ' checked' : '') + '><span>' + (esc(c.tag) || '(untagged)') + exTag(c) + ' <span class="muted small">' + esc(c.sex || '?') + ', born ' + fD(c.born) + (c.wWt ? ', weaned ' + esc(c.wWt) + ' kg' : '') + '</span></span></label>'; }).join('') : '<p class="muted small" style="padding:6px">No unsold live calves on record.</p>') + '</div></details>';
+    (cand.length ? cand.map(function (c) { return '<label><input type="checkbox" data-link="' + c.id + '"' + (s.calfIds.indexOf(c.id) >= 0 ? ' checked' : '') + '><span>' + (esc(c.tag) || '(untagged)') + ' <span class="muted small">' + esc(c.sex || '?') + ', born ' + fD(c.born) + (c.wWt ? ', weaned ' + esc(c.wWt) + ' kg' : '') + '</span></span></label>'; }).join('') : '<p class="muted small" style="padding:6px">No unsold live calves on record.</p>') + '</div></details>';
   function read(root) { var o = readForm(root, fields); o.calfIds = $$('[data-link]:checked', root).map(function (e) { return e.dataset.link; }); return o; }
   function upd(root) {
     var o = read(root), r = C.calcSale(o), w = r.warn.slice();
@@ -724,13 +862,13 @@ function editSale(s) {
     if (!o.date) { setWarn(root, ['Enter the sale date.']); return false; }
     if (piiFail(o, fields)) return false;
     if (o.head === '' && o.calfIds.length) o.head = o.calfIds.length;
-    if (isNew) D.sales.push(Object.assign({ id: uid() }, o)); else { Object.assign(s, o); delete s.ex; }
-    save(); render(); toast('Sale saved');
+    if (isNew) { putRec('sales', Object.assign({ id: uid() }, o)); toast('Sale saved'); }
+    else guardSave('sales', s.id, opened, function () { putRec('sales', Object.assign({}, s, o)); toast('Sale saved'); });
   } }];
-  if (!isNew) btns.unshift({ t: 'Delete', cls: 'danger left', act: function (root, close) { confirmDel('this sale').then(function (ok) { if (!ok) return; D.sales = D.sales.filter(function (x) { return x !== s; }); save(); render(); close(); toast('Sale deleted'); }); return false; } });
+  if (!isNew) btns.unshift({ t: 'Delete', cls: 'danger left', act: function (root, close) { confirmDel('this sale').then(function (ok) { if (!ok) return; delRec('sales', s.id); close(); toast('Sale deleted'); }); return false; } });
   dlg({ title: isNew ? 'Record auction sale' : 'Edit sale', wide: true, buttons: btns,
-    html: (s.ex ? '<p class="small"><span class="tag">EXAMPLE</span> Saving changes makes this a normal record.</p>' : '') + '<p class="small muted">Fill in what is on the auction slip – the rest is worked out (e.g. kg × R/kg = gross; gross − commission − levies − transport − other = net). Don’t enter ID or cell numbers.</p>' +
-      formHTML(fields, s) + '<div class="calcbox" id="saleCalc"></div><div class="warns"></div>' + link,
+    html: '<p class="small muted">Fill in what is on the auction slip – the rest is worked out (e.g. kg × R/kg = gross; gross − commission − levies − transport − other = net). Don’t enter ID or cell numbers.</p>' +
+      formHTML(fields, s) + '<div class="calcbox" id="saleCalc"></div><div class="warns"></div>' + link + whoLine(s),
     onOpen: function (root) { root.addEventListener('input', function () { upd(root); }); root.addEventListener('change', function () { upd(root); }); upd(root); } });
 }
 function rSales(m) {
@@ -738,13 +876,13 @@ function rSales(m) {
   var list = D.sales.filter(function (s) { return inSeason(f, s.date); }).sort(function (a, b) { return a.date < b.date ? 1 : -1; });
   var T = { head: 0, kg: 0, gross: 0, ded: 0, net: 0 };
   var h = '<div class="row"><h2 class="sp">Auction sales</h2>' + seasonSelect('sSeason', f, true) + '<button id="sAdd" class="pri">+ Record sale</button></div><p class="muted small">Values in <i>italics</i> were worked out from the others. Tap a row to edit.</p>';
-  h += '<div class="tw"><table><thead><tr><th>Date</th><th>Auction / venue</th><th>Buyer</th><th>Class</th><th class="n">Head</th><th class="n">kg</th><th class="n">R/kg</th><th class="n">R/head</th><th class="n">Gross</th><th class="n">Deductions</th><th class="n">Net</th></tr></thead><tbody>' +
+  h += '<div class="tw"><table><thead><tr><th>Date</th><th>Auction / venue</th><th>Buyer</th><th>Class</th><th class="n">Head</th><th class="n">kg</th><th class="n">R/kg</th><th class="n">R/head</th><th class="n">Gross</th><th class="n">Deductions</th><th class="n">Net</th><th>By</th></tr></thead><tbody>' +
     (list.length ? list.map(function (s) {
       var r = C.calcSale(s); T.head += r.head || 0; T.kg += r.kg || 0; T.gross += r.gross || 0; T.ded += r.ded || 0; T.net += r.net || 0;
       function v(k, txt) { return r.derived[k] ? '<i>' + txt + '</i>' : txt; }
-      return '<tr class="click" data-id="' + s.id + '"><td>' + fD(s.date) + exTag(s) + (r.warn.length ? ' <span title="' + esc(r.warn.join(' ')) + '">⚠</span>' : '') + '</td><td>' + esc(s.venue) + '</td><td>' + esc(s.buyer) + '</td><td>' + esc(s.cls) + (s.calfIds.length ? ' <span class="muted small">(' + s.calfIds.length + ' linked)</span>' : '') + '</td><td class="n">' + fN(r.head) + '</td><td class="n">' + fN(r.kg) + '</td><td class="n">' + v('pkg', fR(r.pkg)) + '</td><td class="n">' + v('phead', fR(r.phead, 0)) + '</td><td class="n">' + v('gross', fR(r.gross)) + '</td><td class="n">' + fR(r.ded) + '</td><td class="n">' + v('net', fR(r.net)) + '</td></tr>';
-    }).join('') : '<tr><td colspan="11" class="muted">No sales recorded' + (f ? ' in this season' : '') + ' yet.</td></tr>') + '</tbody>' +
-    (list.length ? '<tfoot><tr><td colspan="4">Total (' + list.length + ')</td><td class="n">' + fN(T.head) + '</td><td class="n">' + fN(T.kg) + '</td><td></td><td></td><td class="n">' + fR(T.gross) + '</td><td class="n">' + fR(T.ded) + '</td><td class="n">' + fR(T.net) + '</td></tr></tfoot>' : '') + '</table></div>';
+      return '<tr class="click" data-id="' + s.id + '"><td>' + fD(s.date) + exTag(s) + (r.warn.length ? ' <span title="' + esc(r.warn.join(' ')) + '">⚠</span>' : '') + '</td><td>' + esc(s.venue) + '</td><td>' + esc(s.buyer) + '</td><td>' + esc(s.cls) + (s.calfIds.length ? ' <span class="muted small">(' + s.calfIds.length + ' linked)</span>' : '') + '</td><td class="n">' + fN(r.head) + '</td><td class="n">' + fN(r.kg) + '</td><td class="n">' + v('pkg', fR(r.pkg)) + '</td><td class="n">' + v('phead', fR(r.phead, 0)) + '</td><td class="n">' + v('gross', fR(r.gross)) + '</td><td class="n">' + fR(r.ded) + '</td><td class="n">' + v('net', fR(r.net)) + '</td><td class="small muted">' + esc(s.updatedBy ? s.updatedBy.name : '') + '</td></tr>';
+    }).join('') : '<tr><td colspan="12" class="muted">No sales recorded' + (f ? ' in this season' : '') + ' yet.</td></tr>') + '</tbody>' +
+    (list.length ? '<tfoot><tr><td colspan="4">Total (' + list.length + ')</td><td class="n">' + fN(T.head) + '</td><td class="n">' + fN(T.kg) + '</td><td></td><td></td><td class="n">' + fR(T.gross) + '</td><td class="n">' + fR(T.ded) + '</td><td class="n">' + fR(T.net) + '</td><td></td></tr></tfoot>' : '') + '</table></div>';
   m.innerHTML = h;
   $('#sSeason').onchange = function () { U.saleSeason = this.value; render(); };
   $('#sAdd').onclick = function () { editSale(null); };
@@ -757,16 +895,18 @@ var MOVE_TYPES = [['purchase', 'Purchase (bought in)'], ['death', 'Death (adult)
 function moveFields() { return [{ k: 'date', label: 'Date', type: 'date', def: today() }, { k: 'type', label: 'Type', type: 'select', opts: MOVE_TYPES }, { k: 'head', label: 'Number of head', type: 'number', def: 1 },
   { k: 'cls', label: 'Class', type: 'select', opts: D.settings.classes }, { k: 'amount', label: 'Amount R', type: 'number', hint: 'purchase cost, optional' }, { k: 'note', label: 'Notes / cause', type: 'textarea', wide: true }]; }
 function editGeneric(arr, item, fields, title, what, check) {
+  if (exReadOnly(item)) return;
   var isNew = !item; item = item || {};
+  var opened = item.updatedAt;
   var btns = [{ t: 'Cancel', v: null }, { t: 'Save', cls: 'pri', act: function (root) {
     var o = readForm(root, fields), err = check && check(o);
     if (err) { setWarn(root, [err]); return false; }
     if (piiFail(o, fields)) return false;
-    if (isNew) D[arr].push(Object.assign({ id: uid() }, o)); else { Object.assign(item, o); delete item.ex; }
-    save(); render(); toast('Saved');
+    if (isNew) { putRec(arr, Object.assign({ id: uid() }, o)); toast('Saved'); }
+    else guardSave(arr, item.id, opened, function () { putRec(arr, Object.assign({}, item, o)); toast('Saved'); });
   } }];
-  if (!isNew) btns.unshift({ t: 'Delete', cls: 'danger left', act: function (root, close) { confirmDel(what).then(function (ok) { if (!ok) return; D[arr] = D[arr].filter(function (x) { return x !== item; }); save(); render(); close(); }); return false; } });
-  dlg({ title: (isNew ? 'Add ' : 'Edit ') + title, html: formHTML(fields, item) + '<div class="warns"></div>', buttons: btns });
+  if (!isNew) btns.unshift({ t: 'Delete', cls: 'danger left', act: function (root, close) { confirmDel(what).then(function (ok) { if (!ok) return; delRec(arr, item.id); close(); }); return false; } });
+  dlg({ title: (isNew ? 'Add ' : 'Edit ') + title, html: formHTML(fields, item) + whoLine(item) + '<div class="warns"></div>', buttons: btns });
 }
 function cowCheck(o) { return o.tag ? '' : 'Enter a tag or name.'; }
 function moveCheck(o) { return o.date && o.head > 0 ? '' : 'Enter a date and number of head.'; }
@@ -785,7 +925,7 @@ function rHerd(m) {
   m.innerHTML = h;
   $('#hSave').onclick = function () {
     var c = num($('#hCnt').value), d = $('#hDate').value;
-    D.settings.opening = c === null || !d ? null : { count: c, date: d }; save(); render(); toast(D.settings.opening ? 'Count saved' : 'Count cleared');
+    var op = c === null || !d ? null : { count: c, date: d }; putSettings({ opening: op }); toast(op ? 'Count saved' : 'Count cleared');
   };
   $('#cwAdd').onclick = function () { editGeneric('cows', null, COW_F, 'cow / heifer', 'this cow record', cowCheck); };
   $('#mvAdd').onclick = function () { editGeneric('moves', null, moveFields(), 'movement', 'this movement', moveCheck); };
@@ -793,71 +933,6 @@ function rHerd(m) {
   $$('tr[data-mv]', m).forEach(function (tr) { tr.onclick = function () { editGeneric('moves', D.moves.filter(function (c) { return c.id === tr.dataset.mv; })[0], moveFields(), 'movement', 'this movement', moveCheck); }; });
 }
 
-/* ---------- setup ---------- */
-var SEASON_F = [{ k: 'name', label: 'Season name', hint: 'e.g. 2026 summer calving' }, { k: 'start', label: 'Starts', type: 'date' }, { k: 'end', label: 'Ends', type: 'date' }, { k: 'cowsBred', label: 'Cows put to the bull', type: 'number', hint: 'optional' }, { k: 'notes', label: 'Notes', type: 'textarea', wide: true }];
-function seasonCheck(o) { if (!o.name || !o.start || !o.end) return 'Enter a name, start and end date.'; if (o.end < o.start) return 'The end date is before the start date.'; return ''; }
-function rSetup(m) {
-  var named = D.settings.seasonMode === 'named';
-  var ss = D.seasons.slice().sort(function (a, b) { return a.start < b.start ? -1 : 1; });
-  var h = '<h2>Setup</h2><div class="card"><b>How to group the figures</b><label class="chk"><input type="radio" name="sm" value="year"' + (named ? '' : ' checked') + '> Calendar years (1 Jan – 31 Dec)</label><label class="chk"><input type="radio" name="sm" value="named"' + (named ? ' checked' : '') + '> Named seasons with my own start and end dates</label></div>';
-  h += '<div class="card"><div class="row"><b class="sp">Named seasons</b><button id="seAdd">+ Add season</button></div><p class="small muted">Example: “2026 summer calving”, 01/10/2026 – 31/03/2027. Used when “Named seasons” is selected above.</p><div class="tw"><table><thead><tr><th>Name</th><th>Starts</th><th>Ends</th><th class="n">Cows bred</th></tr></thead><tbody>' +
-    (ss.length ? ss.map(function (s) { return '<tr class="click" data-se="' + s.id + '"><td>' + esc(s.name) + exTag(s) + '</td><td>' + fD(s.start) + '</td><td>' + fD(s.end) + '</td><td class="n">' + fN(s.cowsBred) + '</td></tr>'; }).join('') : '<tr><td colspan="4" class="muted">None yet.</td></tr>') + '</tbody></table></div></div>';
-  h += '<div class="card"><b>Cattle classes</b> <span class="small muted">(one per line – used for sales and movements)</span><textarea id="clsT" rows="6">' + esc(D.settings.classes.join('\n')) + '</textarea><div class="row" style="margin-top:6px"><button id="clsSave">Save classes</button></div></div>';
-  m.innerHTML = h;
-  $$('input[name=sm]', m).forEach(function (r) { r.onchange = function () { D.settings.seasonMode = this.value; U.season = ''; save(); render(); }; });
-  $('#seAdd').onclick = function () { editGeneric('seasons', null, SEASON_F, 'season', 'this season (records stay, only the grouping goes)', seasonCheck); };
-  $$('tr[data-se]', m).forEach(function (tr) { tr.onclick = function () { editGeneric('seasons', D.seasons.filter(function (s) { return s.id === tr.dataset.se; })[0], SEASON_F, 'season', 'this season (records stay, only the grouping goes)', seasonCheck); }; });
-  $('#clsSave').onclick = function () {
-    var l = $('#clsT').value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
-    if (!l.length) { info('Classes', '<p>Keep at least one class.</p>'); return; }
-    D.settings.classes = l.filter(function (x, i) { return l.indexOf(x) === i; }); save(); toast('Classes saved');
-  };
-}
-
-/* ---------- data: backup, import, CSV, clear ---------- */
-function download(name, text, type) {
-  var b = new Blob([text], { type: type }), a = document.createElement('a');
-  a.href = URL.createObjectURL(b); a.download = name; document.body.appendChild(a); a.click();
-  setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
-}
-function exportJSON() {
-  var now = new Date().toISOString();
-  D.settings.lastBackup = now;
-  var out = { app: 'donegal-farm', v: 1, exported: now, data: D };
-  download('donegal-farm-backup-' + today() + '.json', JSON.stringify(out, null, 1), 'application/json');
-  try { localStorage.setItem(KD, JSON.stringify(D)); } catch (e) {}
-  render(); toast('Backup downloaded');
-}
-function parseBackup(text) {
-  var j = JSON.parse(text), d = j && j.data ? j.data : j;
-  if (!d || typeof d !== 'object' || !['calves', 'sales', 'batches', 'cows', 'moves', 'seasons'].some(function (k) { return Array.isArray(d[k]); })) throw new Error('This file is not a Donegal Farm backup.');
-  return normalize(d);
-}
-function counts(d) { return d.calves.length + ' calves, ' + d.batches.length + ' batch weanings, ' + d.sales.length + ' sales, ' + d.cows.length + ' cows, ' + d.moves.length + ' movements, ' + d.seasons.length + ' seasons'; }
-function importText(text) {
-  var nd;
-  try { nd = parseBackup(text); } catch (e) { info('Import failed', '<p>' + esc(e.message) + '</p><p class="small muted">Nothing was changed.</p>'); return; }
-  dlg({ title: 'Import backup', html: '<p>The file contains: <b>' + counts(nd) + '</b>.</p><p>On this device now: ' + counts(D) + '.</p><p><b>Merge</b> adds records that are not here yet. <b>Replace all</b> wipes this device’s data and loads the file.</p><p class="muted small">' + backupLine() + '</p>',
-    buttons: [{ t: 'Cancel', v: null }, { t: 'Merge', v: 'merge' }, { t: 'Replace all', v: 'replace', cls: 'danger' }] }).then(function (how) {
-    if (how === 'merge') {
-      var added = 0;
-      ['seasons', 'cows', 'calves', 'batches', 'sales', 'moves'].forEach(function (k) { var have = {}; D[k].forEach(function (x) { have[x.id] = 1; }); nd[k].forEach(function (x) { if (!have[x.id]) { D[k].push(x); added++; } }); });
-      nd.settings.classes.forEach(function (c) { if (D.settings.classes.indexOf(c) < 0) D.settings.classes.push(c); });
-      save(); render(); info('Merged', '<p>' + added + ' record(s) added.</p>');
-    } else if (how === 'replace') {
-      dlg({ title: 'Replace all data?', html: '<p>Everything on this device will be replaced by the file. Export a backup first if you might need the current data.</p><p class="muted small">' + backupLine() + '</p>',
-        buttons: [{ t: 'Cancel', v: false }, { t: 'Export backup first', v: false, act: function () { exportJSON(); return false; } }, { t: 'Replace', v: true, cls: 'danger' }] }).then(function (ok) {
-        if (!ok) return; var lb = D.settings.lastBackup; D = nd; if (!D.settings.lastBackup) D.settings.lastBackup = lb; save(); U.season = ''; render(); toast('Backup loaded');
-      });
-    }
-  });
-}
-function importFile(file) {
-  var r = new FileReader();
-  r.onload = function () { importText(String(r.result)); };
-  r.onerror = function () { info('Import failed', '<p>Could not read the file.</p>'); };
-  r.readAsText(file);
-}
 function csvFor(kind) {
   var calfTag = {}; D.calves.forEach(function (c) { calfTag[c.id] = c.tag || '(untagged)'; });
   function ex(x) { return x.ex ? 'yes' : ''; }
@@ -873,33 +948,6 @@ function csvFor(kind) {
     var s = C.seasonStats(D, se); function f(v, dp) { return v === null ? '' : v.toFixed(dp); }
     return [se.name, fD(se.start), fD(se.end), s.born, s.bulls, s.heifers, s.died, s.stillborn, s.weaned, s.weanRate === null ? '' : (s.weanRate * 100).toFixed(1), f(s.avgWean, 1), s.headSold, s.kgSold, f(s.rkg, 2), f(s.rhead, 2), s.gross.toFixed(2), s.ded.toFixed(2), s.net.toFixed(2), s.moves.purchHead, s.moves.deaths];
   }));
-}
-function clearAll() {
-  dlg({ title: 'Clear all farm data?', html: '<p>This deletes <b>every</b> calf, weaning, sale, cow, movement and season stored by this app on this device (' + counts(D) + ').</p><p><b>Back up first!</b> ' + backupLine() + '</p>',
-    buttons: [{ t: 'Cancel', v: null }, { t: 'Export backup first', v: null, act: function () { exportJSON(); return false; } }, { t: 'Continue', v: 'go', cls: 'danger' }] }).then(function (go) {
-    if (go !== 'go') return;
-    dlg({ title: 'Type CLEAR to confirm', html: '<p>Type <b>CLEAR</b> to delete all Donegal Farm data on this device. This cannot be undone.</p><input id="clrT" autocomplete="off" autocapitalize="characters"><div class="warns"></div>',
-      buttons: [{ t: 'Cancel', v: null }, { t: 'Delete everything', cls: 'danger', act: function (root) {
-        if ($('#clrT', root).value.trim().toUpperCase() !== 'CLEAR') { setWarn(root, ['Type CLEAR exactly.']); return false; }
-        var keys = []; for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k && k.indexOf(PFX) === 0) keys.push(k); }
-        keys.forEach(function (k) { localStorage.removeItem(k); });
-        D = empty(); U = { tab: 'data' }; save(); render(); toast('All farm data cleared');
-      } }] });
-  });
-}
-function rData(m) {
-  var h = '<h2>Data &amp; backup</h2><div class="card"><b>Backup</b><p class="small">' + backupLine() + ' Your data is stored only in this browser on this device. Export a backup regularly and keep it somewhere safe (e.g. Google Drive).</p><div class="row"><button id="xJson" class="pri">Export backup (JSON)</button><label class="btn">Import backup…<input id="iJson" type="file" accept=".json,application/json" style="display:none"></label></div></div>';
-  h += '<div class="card"><b>Export to spreadsheet (CSV)</b><div class="row" style="margin-top:6px"><select id="csvK" style="width:auto"><option value="summary">Season summary</option><option value="calves">Calves</option><option value="batches">Batch weanings</option><option value="sales">Sales</option><option value="moves">Movements</option><option value="cows">Cows</option></select><button id="xCsv">Download CSV</button></div></div>';
-  if (hasExample()) h += '<div class="card"><b>Example data</b><p class="small">Made-up records marked EXAMPLE.</p><button id="dRemEx">Remove example data</button></div>';
-  h += '<div class="card"><b>Privacy</b><p class="small">No ID numbers or cell numbers are stored – the app refuses text that looks like one. Buyer is a name only and optional.</p></div>';
-  h += '<div class="card"><b>Danger zone</b><p class="small">Removes all Donegal Farm data from this device (other apps are not touched).</p><button id="dClr" class="danger">Clear all data…</button></div>';
-  h += '<p class="small muted">Donegal Farm – Herd Tracker v1.0 · works offline · storage keys donegalFarm.v1.*</p>';
-  m.innerHTML = h;
-  $('#xJson').onclick = exportJSON;
-  $('#iJson').onchange = function () { if (this.files[0]) importFile(this.files[0]); this.value = ''; };
-  $('#xCsv').onclick = function () { var k = $('#csvK').value; download('donegal-farm-' + k + '-' + today() + '.csv', C.csv(csvFor(k)), 'text/csv'); toast('CSV downloaded'); };
-  if ($('#dRemEx')) $('#dRemEx').onclick = removeExample;
-  $('#dClr').onclick = clearAll;
 }
 
 /* ---------- print report (A4) ---------- */
@@ -936,9 +984,325 @@ function printReport(se) {
   $('#pClose').onclick = function () { p.className = ''; p.innerHTML = ''; p.setAttribute('aria-hidden', 'true'); };
 }
 
+/* ---------- banners ---------- */
+function localV1() { try { var raw = localStorage.getItem(KD); if (!raw) return null; return normalize(JSON.parse(raw)); } catch (e) { return null; } }
+function newRecordsFrom(d) { var exS = {}; KEYS.forEach(function (k) { d[k].forEach(function (x) { if (x.ex) exS[x.id] = 1; }); }); var ops = []; KEYS.forEach(function (k) { d[k].forEach(function (x) { if (!x.ex && !CLOUD[k][x.id]) { var r = clone(x); if (Array.isArray(r.calfIds)) r.calfIds = r.calfIds.filter(function (id) { return !exS[id]; }); ops.push({ k: k, rec: r }); } }); }); return ops; }
+function renderBanners() {
+  var h = '';
+  if (hasExample()) h += '<div class="banner ex"><span><b>Example data</b> is shown because the farm database is still empty (rows marked <span class="tag">EXAMPLE</span>). These made-up records are never saved and disappear as soon as real records are added.</span><button id="bRemEx" class="pri">Remove example data</button></div>';
+  if (isAdmin() && allLoaded() && !U.migrateDone) {
+    var v1 = localV1(), n = v1 ? newRecordsFrom(v1).length : 0;
+    if (n) h += '<div class="banner bk"><span>📤 This device has <b>' + n + '</b> record(s) from the earlier local-only version that are not in the farm database yet.</span><span class="row"><button id="bMig" class="pri">Upload to farm database</button><button id="bMigNo">Not now</button></span></div>';
+  }
+  var lb = D.settings.lastBackup, lc = D.settings.lastChange, n2 = realCount();
+  var stale = n2 > 0 && (!lb || (lc && lc > lb && daysSince(lb) >= 7));
+  if (stale) h += '<div class="banner bk"><span>💾 ' + (lb ? 'Last backup from this device was ' + daysSince(lb) + ' days ago and the data has changed since.' : 'No backup has been downloaded on this device yet.') + ' Keep a copy of the farm records somewhere safe.</span><button id="bBk">Export backup</button></div>';
+  $('#banners').innerHTML = h;
+  if ($('#bRemEx')) $('#bRemEx').onclick = removeExample;
+  if ($('#bBk')) $('#bBk').onclick = exportJSON;
+  if ($('#bMig')) $('#bMig').onclick = function () { uploadDialog(localV1(), 'the earlier local-only version on this device', true); };
+  if ($('#bMigNo')) $('#bMigNo').onclick = function () { U.migrateDone = 'later'; saveUI(); render(); toast('You can upload it later from the Data tab'); };
+}
+function uploadDialog(d, from, isMigration) {
+  if (!isAdmin()) { info('Admins only', '<p>Only an admin can upload records into the farm database.</p>'); return; }
+  var ops = newRecordsFrom(d), exN = KEYS.reduce(function (a, k) { return a + d[k].filter(function (x) { return x.ex; }).length; }, 0);
+  var dup = KEYS.reduce(function (a, k) { return a + d[k].filter(function (x) { return !x.ex && CLOUD[k][x.id]; }).length; }, 0);
+  var setNew = !CLOUD.settings;
+  if (!ops.length && !setNew) { info('Nothing to upload', '<p>All ' + dup + ' record(s) from ' + esc(from) + ' are already in the farm database' + (exN ? ' (' + exN + ' example record(s) are never uploaded)' : '') + '.</p>'); if (isMigration) { U.migrateDone = true; saveUI(); render(); } return; }
+  dlg({ title: 'Upload to the farm database?', html: '<p>From ' + esc(from) + ':</p><ul><li><b>' + ops.length + '</b> new record(s) will be uploaded and shared with all approved members</li><li>' + dup + ' already in the database – skipped</li><li>' + exN + ' example record(s) – never uploaded</li>' + (setNew ? '<li>Season and class settings will be copied</li>' : '') + '</ul><p class="small muted">Uploaded records are marked as entered by you.</p>',
+    buttons: [{ t: 'Cancel', v: false }, { t: 'Upload', v: true, cls: 'pri' }] }).then(function (ok) {
+    if (!ok) return;
+    if (setNew) putSettings({ seasonMode: d.settings.seasonMode, classes: d.settings.classes, yearCows: d.settings.yearCows || {}, opening: d.settings.opening || null });
+    putMany(ops);
+    if (isMigration) { U.migrateDone = true; saveUI(); }
+    render(); info('Uploaded', '<p>' + ops.length + ' record(s) uploaded' + (navigator.onLine ? '' : ' – they will sync when there is signal') + '.</p>');
+  });
+}
+
+/* ---------- sync status ---------- */
+function syncInfo() {
+  var online = navigator.onLine, cols = KEYS.map(function (k) { return COLL[k]; }).concat(['settings']);
+  var cached = cols.some(function (c) { return SYNC.fromCache[c] !== false; });
+  var pend = cols.reduce(function (a, c) { return a + (SYNC.pending[c] || 0); }, 0);
+  var st = !online ? 'offline' : SYNC.err ? 'error' : cached ? 'connecting' : 'online';
+  var label = { offline: 'Offline', online: 'Online', connecting: 'Connecting…', error: 'Sync problem' }[st] + (pend ? ' · ' + pend + ' to sync' : '');
+  return { st: st, pend: pend, label: label, last: U.lastSynced ? 'Last synced ' + fTime(U.lastSynced) : 'Not synced yet on this device' };
+}
+var lastSyncSave = 0;
+function onMeta(c, fromCache, pending) {
+  SYNC.fromCache[c] = fromCache; SYNC.pending[c] = pending;
+  if (!fromCache) { CLOUD.loaded[c] = true; SYNC.err = ''; }
+  var s = syncInfo();
+  if (s.st === 'online' && !s.pend) { U.lastSynced = new Date().toISOString(); if (Date.now() - lastSyncSave > 5000) { lastSyncSave = Date.now(); saveUI(); } }
+  paintStatus();
+}
+function paintStatus() {
+  var s = syncInfo(), el = $('#syncChip');
+  if (el) { el.textContent = '● ' + s.label; el.dataset.st = s.st; el.title = s.last + (SYNC.err ? ' – ' + SYNC.err : ''); }
+  var b = $('#syncLine'); if (b) b.textContent = s.label + ' · ' + s.last;
+}
+
+/* ---------- render ---------- */
+function render() {
+  var adm = isAdmin();
+  if (U.tab === 'members' && !adm) U.tab = 'dash';
+  $$('#tabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.t === U.tab); if (b.dataset.t === 'members') { b.hidden = !adm; var n = (APP.members || []).filter(function (x) { return !x.approved; }).length; b.textContent = 'Members' + (n ? ' (' + n + ')' : ''); } });
+  renderBanners();
+  var m = $('#main');
+  ({ dash: rDash, calves: rCalves, wean: rWean, sales: rSales, herd: rHerd, setup: rSetup, data: rData, members: rMembers }[U.tab] || rDash)(m);
+  paintStatus();
+  saveUI();
+}
+
+/* ---------- setup ---------- */
+var SEASON_F = [{ k: 'name', label: 'Season name', hint: 'e.g. 2026 summer calving' }, { k: 'start', label: 'Starts', type: 'date' }, { k: 'end', label: 'Ends', type: 'date' }, { k: 'cowsBred', label: 'Cows put to the bull', type: 'number', hint: 'optional' }, { k: 'notes', label: 'Notes', type: 'textarea', wide: true }];
+function seasonCheck(o) { if (!o.name || !o.start || !o.end) return 'Enter a name, start and end date.'; if (o.end < o.start) return 'The end date is before the start date.'; return ''; }
+function rSetup(m) {
+  var named = D.settings.seasonMode === 'named';
+  var ss = D.seasons.slice().sort(function (a, b) { return a.start < b.start ? -1 : 1; });
+  var h = '<h2>Setup</h2><div class="card"><div class="row"><span class="sp">Signed in as <b>' + esc(who().name) + '</b> (' + (isAdmin() ? 'admin' : 'member') + ')</span><button id="soBtn">Sign out</button></div><p class="small muted" id="syncLine"></p><p class="small">Donegal Farm – Herd Tracker <b id="appVer">' + APP_VERSION + '</b></p></div>';
+  h += '<div class="card"><b>How to group the figures</b> <span class="small muted">(shared by everyone)</span><label class="chk"><input type="radio" name="sm" value="year"' + (named ? '' : ' checked') + '> Calendar years (1 Jan – 31 Dec)</label><label class="chk"><input type="radio" name="sm" value="named"' + (named ? ' checked' : '') + '> Named seasons with my own start and end dates</label></div>';
+  h += '<div class="card"><div class="row"><b class="sp">Named seasons</b><button id="seAdd">+ Add season</button></div><p class="small muted">Example: “2026 summer calving”, 01/10/2026 – 31/03/2027. Used when “Named seasons” is selected above.</p><div class="tw"><table><thead><tr><th>Name</th><th>Starts</th><th>Ends</th><th class="n">Cows bred</th></tr></thead><tbody>' +
+    (ss.length ? ss.map(function (s) { return '<tr class="click" data-se="' + s.id + '"><td>' + esc(s.name) + exTag(s) + '</td><td>' + fD(s.start) + '</td><td>' + fD(s.end) + '</td><td class="n">' + fN(s.cowsBred) + '</td></tr>'; }).join('') : '<tr><td colspan="4" class="muted">None yet.</td></tr>') + '</tbody></table></div></div>';
+  h += '<div class="card"><b>Cattle classes</b> <span class="small muted">(one per line – used for sales and movements)</span><textarea id="clsT" rows="6">' + esc(D.settings.classes.join('\n')) + '</textarea><div class="row" style="margin-top:6px"><button id="clsSave">Save classes</button></div></div>';
+  m.innerHTML = h;
+  $('#soBtn').onclick = signOutFlow;
+  $$('input[name=sm]', m).forEach(function (r) { r.onchange = function () { putSettings({ seasonMode: this.value }); U.season = ''; }; });
+  $('#seAdd').onclick = function () { editGeneric('seasons', null, SEASON_F, 'season', 'this season (records stay, only the grouping goes)', seasonCheck); };
+  $$('tr[data-se]', m).forEach(function (tr) { tr.onclick = function () { editGeneric('seasons', D.seasons.filter(function (s) { return s.id === tr.dataset.se; })[0], SEASON_F, 'season', 'this season (records stay, only the grouping goes)', seasonCheck); }; });
+  $('#clsSave').onclick = function () {
+    var l = $('#clsT').value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
+    if (!l.length) { info('Classes', '<p>Keep at least one class.</p>'); return; }
+    if (l.some(function (x) { return C.looksLikePII(x); })) { info('Personal numbers not allowed', '<p>A class looks like an ID or cell number.</p>'); return; }
+    putSettings({ classes: l.filter(function (x, i) { return l.indexOf(x) === i; }) }); toast('Classes saved');
+  };
+}
+
+/* ---------- data: backup, import, CSV, clear ---------- */
+function download(name, text, type) {
+  var b = new Blob([text], { type: type }), a = document.createElement('a');
+  a.href = URL.createObjectURL(b); a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+/* backup = farm records + shared settings only (never members or email addresses, never example data) */
+function backupData() {
+  var out = { seasons: [], cows: [], calves: [], batches: [], sales: [], moves: [] };
+  KEYS.forEach(function (k) { out[k] = D[k].filter(function (x) { return !x.ex; }).map(clone); });
+  out.settings = { seasonMode: D.settings.seasonMode, classes: D.settings.classes, yearCows: D.settings.yearCows, opening: D.settings.opening };
+  return out;
+}
+function exportJSON() {
+  var now = new Date().toISOString();
+  U.lastBackup = now; saveUI(); rebuild();
+  download('donegal-farm-backup-' + today() + '.json', JSON.stringify({ app: 'donegal-farm', v: 2, version: APP_VERSION, exported: now, exportedBy: who().name, data: backupData() }, null, 1), 'application/json');
+  render(); toast('Backup downloaded');
+}
+function parseBackup(text) {
+  var j = JSON.parse(text), d = j && j.data ? j.data : j;
+  if (!d || typeof d !== 'object' || !KEYS.some(function (k) { return Array.isArray(d[k]); })) throw new Error('This file is not a Donegal Farm backup.');
+  return normalize(d);
+}
+function counts(d) { return d.calves.length + ' calves, ' + d.batches.length + ' batch weanings, ' + d.sales.length + ' sales, ' + d.cows.length + ' cows, ' + d.moves.length + ' movements, ' + d.seasons.length + ' seasons'; }
+function importText(text) {
+  var nd;
+  try { nd = parseBackup(text); } catch (e) { info('Import failed', '<p>' + esc(e.message) + '</p><p class="small muted">Nothing was changed.</p>'); return; }
+  uploadDialog(nd, 'the backup file (' + counts(nd) + ')', false);
+}
+function importFile(file) {
+  var r = new FileReader();
+  r.onload = function () { importText(String(r.result)); };
+  r.onerror = function () { info('Import failed', '<p>Could not read the file.</p>'); };
+  r.readAsText(file);
+}
+function metaCols(x) { return x.ex ? ['', '', ''] : [x.createdBy ? x.createdBy.name : '', x.updatedBy ? x.updatedBy.name : '', x.updatedAt ? fTime(x.updatedAt) : '']; }
+function csvForMeta(kind) {
+  var rows = csvFor(kind), key = { calves: 'calves', batches: 'batches', sales: 'sales', moves: 'moves', cows: 'cows' }[kind];
+  if (!key) return rows;
+  rows[0] = rows[0].concat(['Entered by', 'Last changed by', 'Last changed']);
+  D[key].forEach(function (x, i) { rows[i + 1] = rows[i + 1].concat(metaCols(x)); });
+  return rows;
+}
+function clearAll() {
+  if (!isAdmin()) return;
+  var n = realCount();
+  dlg({ title: 'Delete ALL farm records?', html: '<p>This deletes <b>every</b> calf, weaning, sale, cow, movement and season in the shared farm database (' + n + ' records) – for <b>everyone</b>, on every phone.</p><p><b>Back up first!</b> ' + backupLine() + '</p>',
+    buttons: [{ t: 'Cancel', v: null }, { t: 'Export backup first', v: null, act: function () { exportJSON(); return false; } }, { t: 'Continue', v: 'go', cls: 'danger' }] }).then(function (go) {
+    if (go !== 'go') return;
+    dlg({ title: 'Type CLEAR to confirm', html: '<p>Type <b>CLEAR</b> to delete all ' + n + ' farm records for everyone. This cannot be undone.</p><input id="clrT" autocomplete="off" autocapitalize="characters"><div class="warns"></div>',
+      buttons: [{ t: 'Cancel', v: null }, { t: 'Delete everything', cls: 'danger', act: function (root) {
+        if ($('#clrT', root).value.trim().toUpperCase() !== 'CLEAR') { setWarn(root, ['Type CLEAR exactly.']); return false; }
+        var ops = []; KEYS.forEach(function (k) { Object.keys(CLOUD[k]).forEach(function (id) { ops.push({ k: k, id: id, del: true }); }); });
+        putMany(ops); toast('All farm records deleted');
+      } }] });
+  });
+}
+function rData(m) {
+  var adm = isAdmin();
+  var h = '<h2>Data &amp; backup</h2><div class="card"><b>Backup</b><p class="small">' + backupLine() + ' The records live in the shared farm database (and an offline copy on each signed-in phone). A JSON backup is still worth keeping somewhere safe. Backups hold farm records and the names of who entered them – never email addresses.</p><div class="row"><button id="xJson" class="pri">Export backup (JSON)</button>' +
+    (adm ? '<label class="btn">Upload from backup file…<input id="iJson" type="file" accept=".json,application/json" style="display:none"></label>' : '') + '</div>' +
+    (adm ? '<p class="small muted">Uploading adds records that are not in the database yet (matched by id); existing records and example data are skipped.</p>' : '<p class="small muted">Only admins can upload a backup into the farm database.</p>') + '</div>';
+  if (adm) { var v1 = localV1(); if (v1) h += '<div class="card"><b>Earlier local-only version</b><p class="small">This device still has data from v1 (' + counts(v1) + ', including any example rows).</p><button id="xMig">Upload new records to farm database</button></div>'; }
+  h += '<div class="card"><b>Export to spreadsheet (CSV)</b><div class="row" style="margin-top:6px"><select id="csvK" style="width:auto"><option value="summary">Season summary</option><option value="calves">Calves</option><option value="batches">Batch weanings</option><option value="sales">Sales</option><option value="moves">Movements</option><option value="cows">Cows</option></select><button id="xCsv">Download CSV</button></div></div>';
+  if (hasExample()) h += '<div class="card"><b>Example data</b><p class="small">Made-up records marked EXAMPLE, shown only while the farm database is empty. They are never saved.</p><button id="dRemEx">Remove example data</button></div>';
+  h += '<div class="card"><b>Privacy</b><p class="small">No ID numbers or cell numbers are stored – the app (and the database rules) refuse them. Buyer is a name only and optional. Only approved family members can open the farm database.</p></div>';
+  if (adm) h += '<div class="card"><b>Danger zone</b><p class="small">Deletes all farm records in the shared database for everyone. Members are not affected.</p><button id="dClr" class="danger">Delete all farm records…</button></div>';
+  h += '<p class="small muted">Donegal Farm – Herd Tracker ' + APP_VERSION + '</p>';
+  m.innerHTML = h;
+  $('#xJson').onclick = exportJSON;
+  if ($('#iJson')) $('#iJson').onchange = function () { if (this.files[0]) importFile(this.files[0]); this.value = ''; };
+  if ($('#xMig')) $('#xMig').onclick = function () { uploadDialog(localV1(), 'the earlier local-only version on this device', true); };
+  $('#xCsv').onclick = function () { var k = $('#csvK').value; download('donegal-farm-' + k + '-' + today() + '.csv', C.csv(csvForMeta(k)), 'text/csv'); toast('CSV downloaded'); };
+  if ($('#dRemEx')) $('#dRemEx').onclick = removeExample;
+  if ($('#dClr')) $('#dClr').onclick = clearAll;
+}
+
+/* ---------- members (admins only; the only place email addresses are shown) ---------- */
+var APP = { screen: 'loading', members: null, stopMembers: null, msg: '' };
+function rMembers(m) {
+  if (!isAdmin()) { m.innerHTML = ''; return; }
+  var list = APP.members;
+  if (!list) { m.innerHTML = '<h2>Members</h2><p class="muted">Loading…</p>'; return; }
+  var pend = list.filter(function (x) { return !x.approved; }), mem = list.filter(function (x) { return x.approved; }).sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+  var h = '<h2>Members</h2><p class="small muted">Only approved members can see or change farm records. Email addresses are shown only here, to admins.</p>';
+  h += '<h3>Waiting for approval (' + pend.length + ')</h3><div class="tw"><table><thead><tr><th>Name</th><th>Email</th><th>Requested</th><th></th></tr></thead><tbody>' +
+    (pend.length ? pend.map(function (x) { return '<tr data-u="' + esc(x.uid) + '"><td>' + esc(x.name) + '</td><td>' + esc(x.email) + '</td><td>' + esc(fTime(x.createdAt)) + '</td><td><button class="pri" data-act="approve">Approve</button> <button data-act="reject">Reject</button></td></tr>'; }).join('') : '<tr><td colspan="4" class="muted">No requests.</td></tr>') + '</tbody></table></div>';
+  h += '<h3>Members (' + mem.length + ')</h3><div class="tw"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Approved by</th><th></th></tr></thead><tbody>' +
+    mem.map(function (x) { var me = x.uid === ME.user.uid; return '<tr data-u="' + esc(x.uid) + '"><td>' + esc(x.name) + (me ? ' <span class="tag s">you</span>' : '') + '</td><td>' + esc(x.email) + '</td><td>' + (x.role === 'admin' ? 'Admin' : 'Member') + '</td><td class="small muted">' + esc(x.approvedBy || '') + '</td><td>' +
+      (me ? '<span class="small muted">–</span>' : (x.role === 'admin' ? '<button data-act="demote">Make member</button>' : '<button data-act="promote">Make admin</button>') + ' <button class="danger" data-act="remove">Remove</button>') + '</td></tr>'; }).join('') + '</tbody></table></div>';
+  m.innerHTML = h;
+  $$('button[data-act]', m).forEach(function (b) { b.onclick = function () { memberAction(b.dataset.act, b.closest('tr').dataset.u); }; });
+}
+function memberAction(act, u) {
+  var x = (APP.members || []).filter(function (y) { return y.uid === u; })[0]; if (!x) return;
+  function done(p, msg) { p.then(function () { toast(msg); }).catch(writeErr); }
+  if (act === 'approve') { done(B.updateMember(u, { approved: true }, who()), esc(x.name) + ' approved'); return; }
+  var t = { reject: ['Reject request?', 'Reject the access request from <b>' + esc(x.name) + '</b>? They will not see any farm data. They can ask again later.', 'Reject'],
+    remove: ['Remove member?', 'Remove <b>' + esc(x.name) + '</b>? They immediately lose access to all farm records. Records they entered stay.', 'Remove'],
+    demote: ['Make member?', '<b>' + esc(x.name) + '</b> will no longer be able to approve or remove members.', 'Make member'],
+    promote: ['Make admin?', '<b>' + esc(x.name) + '</b> will be able to approve, remove and promote members, upload backups and delete all records.', 'Make admin'] }[act];
+  dlg({ title: t[0], html: '<p>' + t[1] + '</p>', buttons: [{ t: 'Cancel', v: false }, { t: t[2], v: true, cls: act === 'promote' ? 'pri' : 'danger' }] }).then(function (ok) {
+    if (!ok) return;
+    if (act === 'reject' || act === 'remove') done(B.deleteMember(u), esc(x.name) + (act === 'reject' ? ' rejected' : ' removed'));
+    else done(B.updateMember(u, { role: act === 'promote' ? 'admin' : 'member' }, who()), 'Role changed');
+  });
+}
+
+/* ---------- sign-in screens ---------- */
+function authErr(e) {
+  var c = (e && e.code) || '';
+  return { 'auth/invalid-credential': 'Email or password is wrong.', 'auth/wrong-password': 'Email or password is wrong.', 'auth/user-not-found': 'Email or password is wrong.', 'auth/invalid-login-credentials': 'Email or password is wrong.',
+    'auth/email-already-in-use': 'There is already an account with this email – sign in instead.', 'auth/weak-password': 'Choose a longer password (at least 8 characters).', 'auth/invalid-email': 'That email address doesn’t look right.',
+    'auth/too-many-requests': 'Too many attempts – wait a few minutes and try again.', 'auth/network-request-failed': 'No signal – try again when you are online.', 'auth/missing-password': 'Enter your password.' }[c] || ((e && e.message) || 'Something went wrong.');
+}
+function show(screen, msg) { APP.screen = screen; APP.msg = msg || ''; paintAuth(); }
+function paintAuth() {
+  var inApp = APP.screen === 'app';
+  document.body.classList.toggle('signedout', !inApp);
+  var a = $('#auth'); a.hidden = inApp;
+  if (inApp) { a.innerHTML = ''; render(); return; }
+  $('#main').innerHTML = ''; $('#banners').innerHTML = '';
+  var sc = APP.screen, h = '<div class="authbox"><div class="brand big"><span class="logo">🐄</span><div><b>Donegal Farm</b><small>Herd Tracker ' + APP_VERSION + '</small></div></div>';
+  var msg = APP.msg ? '<div class="warns">' + esc(APP.msg) + '</div>' : '<div class="warns"></div>';
+  if (sc === 'loading') h += '<p>Connecting…</p>';
+  else if (sc === 'config') h += '<p>This copy of the app is not connected to the farm database yet (FIREBASE_CONFIG is not filled in).</p>';
+  else if (sc === 'error') h += '<p>Couldn’t load the sign-in system. Check that you have signal, then reload.</p>' + msg + '<button id="aReload" class="pri">Reload</button>';
+  else if (sc === 'signin') h += '<h2>Sign in</h2><form id="aForm" autocomplete="on"><label class="f"><span>Email</span><input id="aEmail" type="email" autocomplete="username" required></label><label class="f"><span>Password</span><input id="aPw" type="password" autocomplete="current-password" required></label>' + msg + '<button class="pri" type="submit">Sign in</button></form><p class="row"><button class="link" id="aToReg">Create an account</button><button class="link" id="aToReset">Forgot password?</button></p><p class="small muted">Only family members approved by an admin can see the farm records.</p>';
+  else if (sc === 'register') h += '<h2>Create an account</h2><form id="aForm"><label class="f"><span>Your name</span><input id="aName" autocomplete="name" maxlength="60" required></label><label class="f"><span>Email</span><input id="aEmail" type="email" autocomplete="username" required></label><label class="f"><span>Password <i class="muted">at least 8 characters</i></span><input id="aPw" type="password" autocomplete="new-password" required></label><label class="f"><span>Password again</span><input id="aPw2" type="password" autocomplete="new-password" required></label>' + msg + '<button class="pri" type="submit">Create account &amp; ask for access</button></form><p><button class="link" id="aToIn">Back to sign in</button></p><p class="small muted">An admin has to approve you before you can see any farm records. Don’t use an ID or cell number as your name.</p>';
+  else if (sc === 'reset') h += '<h2>Reset password</h2><form id="aForm"><label class="f"><span>Email</span><input id="aEmail" type="email" autocomplete="username" required></label>' + msg + '<button class="pri" type="submit">Send reset link</button></form><p><button class="link" id="aToIn">Back to sign in</button></p>';
+  else if (sc === 'waiting') {
+    var nm = (ME.member && ME.member.name) || (ME.user && ME.user.name) || '';
+    if (ME.member) h += '<h2>Waiting for approval</h2><p>Thanks' + (nm ? ', <b>' + esc(nm) + '</b>' : '') + '. Your request has been sent. An admin (Gideon) needs to approve it before you can see the farm records.</p><p class="small muted">This page opens by itself as soon as you are approved – you can leave it open or come back later.</p>' + msg;
+    else h += '<h2>No access yet</h2><p>There is no access request for this account (it may still be sending, or it was declined or removed).</p><form id="aForm"><label class="f"><span>Your name</span><input id="aName" maxlength="60" value="' + esc(nm) + '" required></label>' + msg + '<button class="pri" type="submit">Ask for access</button></form>';
+    h += '<p><button id="aOut">Sign out</button></p>';
+  }
+  a.innerHTML = h + '</div>';
+  function on(id, f) { var el = $('#' + id); if (el) el.onclick = function (e) { e.preventDefault(); f(); }; }
+  on('aToReg', function () { show('register'); }); on('aToReset', function () { show('reset'); }); on('aToIn', function () { show('signin'); });
+  on('aReload', function () { location.reload(); }); on('aOut', signOutFlow);
+  var f = $('#aForm'); if (f) f.onsubmit = function (e) { e.preventDefault(); authSubmit(sc, f); };
+}
+function authSubmit(sc, f) {
+  var v = function (id) { var el = $('#' + id); return el ? el.value.trim() : ''; }, btn = $('button[type=submit]', f);
+  function fail(e) { btn.disabled = false; APP.msg = typeof e === 'string' ? e : authErr(e); var w = $('.warns', f); if (w) w.textContent = APP.msg; }
+  btn.disabled = true;
+  if (sc === 'signin') { B.signIn(v('aEmail'), $('#aPw').value).catch(fail); return; }
+  if (sc === 'reset') { B.reset(v('aEmail')).then(function () { show('signin', 'If an account exists for that email, a reset link is on its way. Check your inbox (and spam).'); }).catch(function (e) { if (e && e.code === 'auth/user-not-found') show('signin', 'If an account exists for that email, a reset link is on its way.'); else fail(e); }); return; }
+  var name = v('aName');
+  if (!name) return fail('Enter your name.');
+  if (C.looksLikePII(name)) return fail('Your name looks like it contains an ID or cell number – please use just your name.');
+  if (sc === 'register') {
+    if ($('#aPw').value.length < 8) return fail('Choose a password of at least 8 characters.');
+    if ($('#aPw').value !== $('#aPw2').value) return fail('The two passwords are not the same.');
+    APP.registering = true;
+    B.register(name, v('aEmail'), $('#aPw').value).then(function () { APP.registering = false; }).catch(function (e) { APP.registering = false; if (APP.screen === 'register') fail(e); else show('waiting', authErr(e)); });
+    return;
+  }
+  if (sc === 'waiting') B.requestAccess(name).catch(fail);
+}
+function signOutFlow() {
+  var p = syncInfo().pend;
+  dlg({ title: 'Sign out?', html: (p ? '<p class="warns">⚠ ' + p + ' change(s) have not reached the farm database yet (no signal). Signing out now will lose them – wait until you have signal.</p>' : '') + '<p>Signing out also removes the offline copy of the farm records from this device.</p>',
+    buttons: [{ t: 'Cancel', v: false }, { t: 'Sign out', v: true, cls: p ? 'danger' : 'pri' }] }).then(function (ok) {
+    if (!ok) return;
+    stopAll(); U.lastSynced = null; U.tab = 'dash'; saveUI();
+    B.signOut().catch(function () {}).then(function () { location.reload(); });
+  });
+}
+
+/* ---------- auth state → screens ---------- */
+var stopMe = null;
+function resetCloud() { KEYS.forEach(function (k) { CLOUD[k] = {}; }); CLOUD.settings = null; CLOUD.loaded = {}; SYNC.fromCache = {}; SYNC.pending = {}; rebuild(); }
+function stopAll() { if (stopFarm) { stopFarm(); stopFarm = null; } if (APP.stopMembers) { APP.stopMembers(); APP.stopMembers = null; } APP.members = null; resetCloud(); }
+function onUser(u) {
+  if (stopMe) { stopMe(); stopMe = null; }
+  if (!u) { ME.user = null; ME.member = null; stopAll(); if (APP.screen !== 'register' && APP.screen !== 'reset') show('signin', APP.screen === 'signin' ? APP.msg : ''); return; }
+  ME.user = u; show('loading');
+  stopMe = B.watchMember(u.uid, function (m) {
+    ME.member = m;
+    if (m && m.approved) {
+      startFarm();
+      if (isAdmin() && !APP.stopMembers) APP.stopMembers = B.watchMembers(function (l) { APP.members = l; if (APP.screen === 'app') render(); }, function () { APP.members = []; });
+      if (!isAdmin() && APP.stopMembers) { APP.stopMembers(); APP.stopMembers = null; APP.members = null; }
+      if (APP.screen !== 'app') show('app'); else render();
+    } else {
+      stopAll();
+      if (!m && APP.registering) show('waiting', 'Sending your request…'); else show('waiting');
+    }
+  }, function (e) { stopAll(); show('waiting', e && e.code === 'permission-denied' ? '' : authErr(e)); });
+}
+function startFarm() {
+  if (stopFarm) return;
+  var byColl = {}; KEYS.forEach(function (k) { byColl[COLL[k]] = k; });
+  stopFarm = B.watchFarm(KEYS.map(function (k) { return COLL[k]; }).concat(['settings']), function (c, ch) {
+    ch.forEach(function (x) {
+      if (c === 'settings') { if (x.id === 'main') CLOUD.settings = x.type === 'removed' ? null : x.data; return; }
+      var k = byColl[c]; if (x.type === 'removed') delete CLOUD[k][x.id]; else { x.data.id = x.id; CLOUD[k][x.id] = x.data; }
+    });
+    scheduleRender();
+  }, function (c, fromCache, pend) { var was = allLoaded(); onMeta(c, fromCache, pend); if (!was && allLoaded()) scheduleRender(); },
+  function (c, e) { SYNC.err = e && e.code === 'permission-denied' ? 'Access refused' : ((e && e.message) || 'error'); paintStatus(); });
+  /* no signal at all: after a few seconds show what is in the offline copy */
+  setTimeout(function () { if (!allLoaded()) { KEYS.forEach(function (k) { CLOUD.loaded[COLL[k]] = true; }); scheduleRender(); } }, navigator.onLine ? 8000 : 1500);
+}
+
 /* ---------- start ---------- */
-$$('#tabs button').forEach(function (b) { b.onclick = function () { U.tab = b.dataset.t; render(); window.scrollTo(0, 0); }; });
-load(); render();
+function registerSW(cfg) {
+  if (!('serviceWorker' in navigator) || !(location.protocol === 'https:' || location.hostname === 'localhost') || cfg.emulator || window.DF_BACKEND) return;
+  navigator.serviceWorker.register('./sw.js', { scope: './', updateViaCache: 'none' }).catch(function () {});
+}
+function boot() {
+  loadUI(); rebuild();
+  $$('#tabs button').forEach(function (b) { b.onclick = function () { U.tab = b.dataset.t; render(); window.scrollTo(0, 0); }; });
+  $('#syncChip').onclick = function () { U.tab = 'setup'; render(); };
+  window.addEventListener('online', paintStatus); window.addEventListener('offline', paintStatus);
+  var cfg = window.DF_TEST_CONFIG || window.FIREBASE_CONFIG || {};
+  var mk = window.DF_BACKEND ? Promise.resolve(window.DF_BACKEND()) : dfConfigured(cfg) ? dfFirebaseBackend(cfg) : null;
+  if (!mk) { show('config'); return; }
+  show('loading');
+  registerSW(cfg);
+  mk.then(function (b) { B = b; B.onAuth(onUser); }).catch(function (e) { show('error', (e && e.message) || String(e)); });
+}
+boot();
 
 </script>
 </body>

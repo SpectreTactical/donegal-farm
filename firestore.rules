@@ -1,0 +1,61 @@
+rules_version = '2';
+// Donegal Farm – Herd Tracker (v2). Shared farm database for approved family members only.
+//
+// members/{uid}: { name, email, role: 'admin'|'member', approved: bool, createdAt, approvedBy?, approvedAt? }
+//   - a signed-in (email/password) user may create ONLY their own pending request (approved false, role member,
+//     email = their sign-in email) and read their own doc;
+//   - only approved admins may list members, approve, change roles or remove members;
+//   - an admin cannot demote, unapprove or remove themselves (prevents locking the farm out of admins).
+//   - The FIRST admin is made by hand in the Firebase console (see ADMIN-SETUP.md).
+// farms/donegal/{collection}/{id}: farm records, readable and writable only by approved members.
+//   Every write must be stamped updatedBy = the caller and updatedAt = server time; createdBy cannot be changed.
+//   Example records (field "ex") and personal fields (email, ID or cell numbers) are refused.
+// Everything else is denied.
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function signedIn() { return request.auth != null && request.auth.token.firebase.sign_in_provider == 'password'; }
+    function memberPath() { return /databases/$(db)/documents/members/$(request.auth.uid); }
+    function approved() { return signedIn() && exists(memberPath()) && get(memberPath()).data.approved == true; }
+    function isAdmin() { return approved() && get(memberPath()).data.role == 'admin'; }
+    function okName(v) { return v is string && v.size() >= 1 && v.size() <= 60; }
+
+    match /members/{uid} {
+      allow get: if signedIn() && (uid == request.auth.uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if signedIn() && uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['name', 'email', 'role', 'approved', 'createdAt'])
+        && request.resource.data.keys().hasAll(['name', 'email', 'role', 'approved'])
+        && okName(request.resource.data.name)
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.role == 'member'
+        && request.resource.data.approved == false;
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'approved', 'approvedBy', 'approvedAt'])
+        && request.resource.data.role in ['admin', 'member']
+        && request.resource.data.approved is bool
+        && (uid != request.auth.uid || (request.resource.data.role == 'admin' && request.resource.data.approved == true));
+      allow delete: if isAdmin() && uid != request.auth.uid;
+    }
+
+    match /farms/{farm}/{coll}/{id} {
+      function okColl() { return farm == 'donegal' && coll in ['seasons', 'calves', 'weanings', 'sales', 'movements', 'cows', 'settings']; }
+      function okRecord() {
+        let d = request.resource.data;
+        return d.updatedBy is map && d.updatedBy.uid == request.auth.uid && okName(d.updatedBy.name)
+          && d.updatedAt == request.time
+          && !d.keys().hasAny(['ex', 'email', 'idNumber', 'idNo', 'cell', 'cellphone', 'phone', 'mobile'])
+          && (coll == 'settings' ? id == 'main' : d.id == id);
+      }
+      allow read: if approved() && okColl();
+      allow create: if approved() && okColl() && okRecord()
+        && (coll == 'settings' || (request.resource.data.createdBy is map && okName(request.resource.data.createdBy.name)));
+      allow update: if approved() && okColl() && okRecord()
+        && (coll == 'settings' || request.resource.data.createdBy == resource.data.createdBy);
+      allow delete: if approved() && okColl();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
