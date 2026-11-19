@@ -2,11 +2,13 @@
    at once when online); the versioned Firebase SDK files from gstatic are cached on first use. Data sync is
    handled by Firestore's own offline cache, not here. The weaner price feed (prices.json) is never cached here –
    it always goes to the network; the app keeps its own dated copy for use without signal. */
-var CACHE = 'donegal-farm-v2.2';
+var CACHE = 'donegal-farm-v2.3';
 var SDK = ['firebase-app.js', 'firebase-auth.js', 'firebase-firestore.js'].map(function (f) { return 'https://www.gstatic.com/firebasejs/10.14.1/' + f; });
 self.addEventListener('install', function (e) {
   e.waitUntil(Promise.all([
-    caches.open(CACHE).then(function (c) { return c.addAll([new Request('./', { cache: 'reload' })]); }),
+    caches.open(CACHE).then(function (c) { return c.addAll([new Request('./', { cache: 'reload' })]).then(function () {
+      return Promise.all(['./icon.svg', './icon-192.png', './icon-512.png', './apple-touch-icon.png', './manifest.webmanifest'].map(function (u) { return c.add(u).catch(function () {}); }));
+    }); }),
     caches.open('donegal-firebase-sdk').then(function (c) { return Promise.all(SDK.map(function (u) { return c.match(u).then(function (hit) { return hit || fetch(u, { mode: 'cors' }).then(function (r) { if (r.ok) return c.put(u, r); }); }); })); }).catch(function () {})
   ]).then(function () { return self.skipWaiting(); }));
 });

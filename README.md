@@ -27,7 +27,10 @@ Forgot your password? On the sign-in screen tap **Forgot password?** and a reset
   then the visual tag, so importing the same file again adds nothing, and it never overwrites what you typed – it only
   fills blank fields. The **Grazing load** card adds up everything that grazes (own herd, legacy animals being phased
   out, and workers) against the farm's capacity (425 LSU by default, 1 head = 1 LSU). Legacy and worker animals are
-  left out of the own-herd and group figures.
+  left out of the own-herd and group figures. **Select** on the Herd tab lets you tick animals (or Select all of
+  the ones in the current search / filter, or a visual-tag range such as 25-100 to 25-149) and **Set status…** on
+  all of them at once – Sold, or any other status. Marking Sold asks for the sale date and can link the animals to
+  an auction sale you have already recorded.
 - **Dashboard**: figures per season, year-on-year comparison and charts. **Print / PDF report** gives an A4 report.
 - **Market**: weekly weaner calf prices – RPO (bull calves, national) and AMT (weaners 200–250 kg, weight classes and
   regions) – with a trend chart, your own weaner sales compared with the benchmark for that week, and a calculator for
@@ -47,6 +50,15 @@ Forgot your password? On the sign-in screen tap **Forgot password?** and a reset
 - Never enter ID numbers or cell numbers; the app refuses them. Buyer is a name only.
 
 ## Files
-- `index.html` – the app (version shown in Setup, currently v2.2)
+- `index.html` – the app (version shown in Setup, currently v2.3)
 - `sw.js` – lets the app open without signal (the price feed is never served from its cache)
+- `icon.svg`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`, `manifest.webmanifest` – Bonsmara cow icon
+  (header, browser tab, and Add to Home screen)
 - `firestore.rules` – database security rules (published in the Firebase console, see ADMIN-SETUP.md)
+
+## Icon licence
+The cow mark is a recolour of Noto Color Emoji U+1F404 (🐄), file `emoji_u1f404.svg`, from
+[googlefonts/noto-emoji](https://github.com/googlefonts/noto-emoji). The original artwork is
+Copyright Google and licensed under the Apache License, Version 2.0
+(http://www.apache.org/licenses/LICENSE-2.0). The paths and shading are unchanged; only the
+Friesian black and white coat colours were remapped to a solid Bonsmara red-brown.
